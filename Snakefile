@@ -12,6 +12,9 @@ SAMPLES = m['sample'].unique().tolist()
 ########################################
 
 rule mgx_fastp_reads:
+    """
+    fastp removes adapter sequences, removes reads that are shorter than 31 base pairs (k-mer size to build cDBG and for taxonomic discovery), and lightly quality controls reads (Phred score < 4).
+    """
     input: 
         r1 = "inputs/mgx_raw/{sample}_R1.fq.gz",
         r2 = "inputs/mgx_raw/{sample}_R2.fq.gz"
@@ -39,16 +42,18 @@ rule download_human_host_db:
     '''
 
 rule mgx_remove_host_reads:
-   """
-   This rule assumes a human host for a metagenome.
-   If your metagenome did not come from a human, it's probably still a good idea to try and subtract the host genome.
-   While here we used a masked version of the human genome, using the genome itself as the host will still work (no promises around mitochondira/chlorophyll).
-   Replace the path to the host file with the path to your host genome file.
-   We've provided download scripts for a variety of common mammalian hosts in host_sequences.snakefile (mostly because we had then laying around); any genome sequence could be used here however.
-   These sequences can be used as drop-in replacements for the "host" sequence indicated below. 
-   """
-# http://seqanswers.com/forums/archive/index.php/t-42552.html
-# https://drive.google.com/file/d/0B3llHR93L14wd0pSSnFULUlhcUk/edit?usp=sharing
+    """
+    Removes host genome sequence from microbiome.
+    This rule assumes a human host for a metagenome.
+    If your metagenome did not come from a human but did come from a host-associated microbiome, it's probably still a good idea to try and subtract the host genome.
+    While here we used a masked version of the human genome, using the genome itself as the host will still work (no promises around mitochondira/chlorophyll).
+    Replace the path to the host file with the path to your host genome file.
+    We've provided download scripts for a variety of common mammalian hosts in host_sequences.snakefile (mostly because we had then laying around); any genome sequence could be used here however.
+    These sequences can be used as drop-in replacements for the "host" sequence indicated below.
+    If your metagenome did not come from a host-associated microbiome, it's not a bad idea to keep this rule as is and remove human, as human DNA could have snuck in during DNA extraction/library prep/sequencing. 
+    This method was introduced in this seqanswers post: http://seqanswers.com/forums/archive/index.php/t-42552.html
+    The database was originally downloaded from this url: https://drive.google.com/file/d/0B3llHR93L14wd0pSSnFULUlhcUk/edit?usp=sharing 
+    """
     input: 
         r1 = 'outputs/mgx_fastp/{sample}_R1.fastp.fq.gz',
         r2 = 'outputs/mgx_fastp/{sample}_R2.fastp.fq.gz',
@@ -68,6 +73,11 @@ rule mgx_remove_host_reads:
     '''
 
 rule mgx_kmer_trim_reads:
+    """
+    Trims k-mers that are probably errors. 
+    The -V option (--variable-coverage) prevents elimination of low-abundance reads by only trimming low-abundance k-mers from high-abundance reads.
+    K-mer trimming is an important pre-processing step before building the cDBG, as erroneous k-mers will increase the complexity of the graph.
+    """
     input: 
         'outputs/mgx_bbduk/{sample}_R1.nohost.fq.gz',
         'outputs/mgx_bbduk/{sample}_R2.nohost.fq.gz'
@@ -87,9 +97,11 @@ rule mgx_kmer_trim_reads:
 ##########################################################
 
 rule mgx_sourmash_sketch:
+    """
+    Create a FracMinHash sketch of the quality-controlled reads.
+    """
     input: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
     output: "outputs/mgx_sigs/{sample}.sig"
-    params: "outputs/mgx_sigs/{sample}.sig"),
     threads: 1
     resources:
         mem_mb=lambda wildcards, attempt: attempt *1000,
@@ -120,6 +132,12 @@ rule download_sourmash_gather_database_lineages:
     '''
 
 rule mgx_sourmash_gather:
+    """
+    Determine the taxonomic profile of each metagenome using sourmash gather.
+    Compares against the GTDB rs207 reps database.
+    If the organisms in your metagenome are well-represented by GTDB, the representatives database is a good choice for this step as it is fast and good enough to generate candidate query genomes for spacegraphcats and dominating set differential abundance analysis.
+    If this step doesn't produce many matches, the database can be substituted for GenBank databases (built March 2022, see: https://sourmash.readthedocs.io/en/latest/databases.html).
+    """
     input:
         sig="outputs/sample_sigs/{sample}.sig",
         db="inputs/gtdb-rs207.genomic-reps.dna.k31.zip",
@@ -199,7 +217,8 @@ checkpoint query_genomes_charcoal_decontaminate:
     output: directory("outputs/query_genomes_charcoal/")
         #"outputs/query_genomes_charcoal/{acc}_genomic.fna.gz.clean.fa.gz"
     resources:
-        mem_mb = 64000
+        mem_mb = 64000,
+        time_min = 1440
     threads: 8
     conda: "envs/charcoal.yml"
     shell:'''
@@ -215,6 +234,29 @@ def checkpoint_query_genomes_charcoal_decontaminate:
     return file_names
 
 rule mgx_make_sgc_conf:
+    """
+    Make configuration file that will be used for mgx_spacegraphcats_built_catlas and mgx_spacegraphcats_query_genomes_extract_reads
+    """
+    input: queries = checkpoint_query_genomes_charcoal_decontaminate 
+    output: conf = "outputs/sgc_conf/{sample}_k31_r1_conf.yml"
+    resources:
+        mem_mb = 500,
+        time_min = 20
+    threads: 1
+    run:
+        query_list = "\n- ".join(input.queries)
+        with open(output.conf, 'wt') as fp:
+           print(f"""\
+catlas_base: {wildcards.sample}
+input_sequences:
+- outputs/mgx_abundtrim/{wildcards.sample}.abundtrim.fq.gz
+ksize: 31
+radius: 1
+paired_reads: true
+search:
+- {query_list}
+""", file=fp)
+
 
 rule mgx_spacegraphcats_build_catlas:
     """
@@ -222,7 +264,7 @@ rule mgx_spacegraphcats_build_catlas:
     This becomes more RAM-intensive when there are more k-mers in a sample.
     As such, the RAM necessary to run this step increases with the complexity/taxonomic diversity of the sample.
     We include some suggestions based on using this approach with metagenomes from a variety of environments.
-    RAM suggestions:
+    RAM suggestions (that might be very wrong, but are probably good starting points):
     infant gut microbiome (2-20 species): 24 Gb
     mammalian gut microbiome (100-1000 species): 32-64 Gb
     ruminant gut microbiome: 500 Gb
@@ -250,8 +292,7 @@ checkpoint mgx_spacegraphcats_query_genomes_extract_reads:
     input: 
         conf = ancient("outputs/sgc_conf/{sample}_k31_r1_conf.yml"),
         reads = "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
-    output:
-        reads = directory("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/")
+    output: directory("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/")
         #"outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz",
     params: outdir = "outputs/mgx_sgc_genome_queries"
     conda: "envs/spacegraphcats.yml"
@@ -274,7 +315,7 @@ rule diginorm_spacegraphcats_query_genomes:
         mem_mb = 164000,
         time_min = 1440
     threads: 1
-    conda: "envs/env.yml"
+    conda: "envs/spacegraphcats.yml"
     shell:'''
     zcat {input} | normalize-by-median.py -k 20 -C 20 -M 164e9 --gzip -o {output} -
     '''
@@ -286,11 +327,13 @@ rule hardtrim_spacegraphcats_query_genomes:
         mem_mb = 24000,
         time_min = 1440
     threads: 1
-    conda: "envs/env.yml"
+    conda: "envs/spacegraphcats.yml"
     shell:'''
     trim-low-abund.py -C 4 -M 20e9 -k 31 {input} --gzip -o {output}
     '''
 
+# POTENTIAL TODO: could add multifasta queries in here, but that would mean all of the multifasta steps would need to be completed before the metaspecies catlas could be built...
+# so probably do two separate conf files. Check in testing if I need to do snakemake touch before running multifasta for it to not trigger rebuild of the catlas if using a new conf file.
 rule make_sgc_metapangenome_conf_files:
     input: reads = "outputs/mgx_sgc_genome_queries_hardtrim/{acc}.hardtrim.fa.gz",
     output: conf = "outputs/sgc_conf/{acc}_r10_conf.yml"
@@ -309,14 +352,14 @@ paired_reads: true
 """, file=fp)
 
 rule metapangeome_spacegraphcats_build:
-    input:
-        reads = "outputs/mgx_sgc_genome_queries_hardtrim/{acc}.hardtrim.fa.gz",
-        conf = "outputs/sgc_conf/{acc}_r10_conf.yml"
+    input: conf = "outputs/sgc_conf/{acc}_r10_conf.yml"
     output: 
         "outputs/metapangenome_sgc_catlases/{acc}_k31/cdbg.gxt",
         "outputs/metapangenome_sgc_catlases/{acc}_k31/bcalm.unitigs.db",
         "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/catlas.csv"
-    resources: mem_mb = 300000
+    resources: 
+        mem_mb = 300000,
+        time_min = 1440
     conda: "envs/spacegraphcats.yml"
     params: outdir = "outputs/sgc_pangenome_catlases"
     shell:'''
@@ -327,90 +370,88 @@ rule metapangeome_spacegraphcats_build:
 ## Estimate abundance and perform dominating set differential abundance analysis
 #################################################################################
 
-rule spacegraphcats_pangenome_catlas_cdbg_to_pieces_map:
+rule metapangenome_spacegraphcats_catlas_cdbg_to_pieces_map:
     input:
-        cdbg = "outputs/sgc_pangenome_catlases/{acc}_k31/cdbg.gxt",
-        catlas = "outputs/sgc_pangenome_catlases/{acc}_k31_r10/catlas.csv"
-    output: "outputs/sgc_pangenome_catlases/{acc}_k31_r10/cdbg_to_pieces.csv"
+        cdbg = "outputs/metapangenome_sgc_catlases/{acc}_k31/cdbg.gxt",
+        catlas = "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/catlas.csv"
+    output: "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/cdbg_to_pieces.csv"
     conda: "envs/spacegraphcats2.yml"
     resources: 
         mem_mb = 16000,
-        tmpdir = TMPDIR
+        time_min = 720
     threads: 1
     params:
-        cdbg_dir = lambda wildcards: "outputs/sgc_pangenome_catlases/" + wildcards.acc + "_k31" ,
-        catlas_dir = lambda wildcards: "outputs/sgc_pangenome_catlases/" + wildcards.acc + "_k31_r10", 
+        cdbg_dir = lambda wildcards: "outputs/metapangenome_sgc_catlases/" + wildcards.acc + "_k31" ,
+        catlas_dir = lambda wildcards: "outputs/metapangenome_sgc_catlases/" + wildcards.acc + "_k31_r10", 
     shell:'''
     scripts/cdbg_to_pieces.py {params.cdbg_dir} {params.catlas_dir}
     '''
 
 rule tmp_cp_sgc_nbhds_w_lib_prefix:
-    input: "outputs/sgc_genome_queries/{library}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz"
-    output: temp("outputs/sgc_genome_queries_tmp/{acc}/{library}.reads.gz")
+    """
+    the way that the abundance estimation code is written, it automatically
+    1. performs across multiple samples to save on time with loading the catlas over and over
+    2. automatically names files from the prefix of the basename of the input reads being estimated.
+    The genome query neighborhoods all have the same prefix (the genome accession number) which would cause all of the files to overwrite one another.
+    This rule temporarily copies those files to a new name, making the sample name the prefix.
+    I could go back to the original metagenome and estimate abundances from those reads, but that takes a lot more time than just using query neighborhoods.
+    I've tried to think of ways to fix this in the spacegraphcats code, but there wasn't an immediate answer for a better way to do this. 
+    https://github.com/spacegraphcats/spacegraphcats/issues/451#issuecomment-987043304
+    """
+    input: "outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz"
+    output: temp("outputs/mgx_sgc_genome_queries_tmp/{acc}/{sample}.reads.gz")
     resources: 
         mem_mb = 500,
-        tmpdir = TMPDIR
+        time_min = 30
     threads: 1
     shell:'''
     cp {input} {output}
     '''
     
-# TR TODO: update env to PR 303, or update sgc latest if merged. Since dom_abund is checked out, this might work like this...
 rule spacegraphcats_pangenome_catlas_estimate_abundances:
     input:
-        cdbg = "outputs/sgc_pangenome_catlases/{acc}_k31/cdbg.gxt",
-        catlas = "outputs/sgc_pangenome_catlases/{acc}_k31_r10/catlas.csv",
-        reads = expand("outputs/sgc_genome_queries_tmp/{{acc}}/{library}.reads.gz", library = LIBRARIES)
-        #reads = expand("outputs/abundtrim/{library}.abundtrim.fq.gz", library = LIBRARIES)
-    output: expand("outputs/sgc_pangenome_catlases/{{acc}}_k31_r10_abund/{library}.reads.gz.dom_abund.csv", library = LIBRARIES)
-    conda: "envs/spacegraphcats_dom.yml"
+        cdbg = "outputs/metapangenome_sgc_catlases/{acc}_k31/cdbg.gxt",
+        catlas = "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/catlas.csv",
+        reads = expand("outputs/mgx_sgc_genome_queries_tmp/{{acc}}/{sample}.reads.gz", sample = SAMPLES)
+    output: expand("outputs/metapangenome_sgc_catlases/{{acc}}_k31_r10_abund/{sample}.reads.gz.dom_abund.csv", sample = SAMPLES)
+    conda: "envs/spacegraphcats.yml"
     resources: 
         mem_mb = 10000,
-        tmpdir = TMPDIR
+        time_min = 440
     threads: 1
     params:
-        cdbg_dir = lambda wildcards: "outputs/sgc_pangenome_catlases/" + wildcards.acc + "_k31" ,
-        catlas_dir = lambda wildcards: "outputs/sgc_pangenome_catlases/" + wildcards.acc + "_k31_r10", 
-        out_dir = lambda wildcards: "outputs/sgc_pangenome_catlases/" + wildcards.acc + "_k31_r10_abund", 
+        cdbg_dir = lambda wildcards: "outputs/metapangenome_sgc_catlases/" + wildcards.acc + "_k31" ,
+        catlas_dir = lambda wildcards: "outputs/metapangenome_sgc_catlases/" + wildcards.acc + "_k31_r10", 
+        out_dir = lambda wildcards: "outputs/metapangenome_sgc_catlases/" + wildcards.acc + "_k31_r10_abund", 
     shell:'''
-    /home/tereiter/github/spacegraphcats/scripts/count-dominator-abundance.py {params.cdbg_dir} {params.catlas_dir} --outdir {params.out_dir} {input.reads}
+    python -m spacegraphcats.search.count_dominator_abundance {params.cdbg_dir} {params.catlas_dir} --outdir {params.out_dir} {input.reads}
     '''
 
 rule format_spacegraphcats_pangenome_catlas_abundances:
     input: 
-        dom_abund = expand("outputs/sgc_pangenome_catlases/{{acc}}_k31_r10_abund/{library}.reads.gz.dom_abund.csv", library = LIBRARIES)
+        dom_abund = expand("outputs/metapangenome_sgc_catlases/{{acc}}_k31_r10_abund/{sample}.reads.gz.dom_abund.csv", sample = SAMPLES)
     output: 
-        dom_abund="outputs/sgc_pangenome_catlases/{acc}_k31_r10_abund/all_dom_abund.tsv",
-        dom_info="outputs/sgc_pangenome_catlases/{acc}_k31_r10_abund/dom_info.tsv",
-        dom_abund_pruned="outputs/sgc_pangenome_catlases/{acc}_k31_r10_abund/all_dom_abund_pruned.tsv"
-    conda: "envs/tidy.yml"
+        dom_abund="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_abund/all_dom_abund.tsv",
+        dom_info="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_abund/dom_info.tsv",
+        dom_abund_pruned="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_abund/all_dom_abund_pruned.tsv"
+    conda: "envs/tidyverse.yml"
     resources: 
         mem_mb = 200000,
-        tmpdir = TMPDIR
+        time_min = 440
     threads: 1
-    script: "scripts/format_pangenome_catlas_dom_abund.R"
-
-rule install_corncob:
-    output: corncob = "outputs/sgc_pangenome_catlases_corncob/corncob_install.txt"
-    resources: 
-        mem_mb = 1000,
-        tmpdir = TMPDIR
-    threads: 1
-    conda: 'envs/corncob.yml'
-    script: "scripts/install_corncob.R"
+    script: "scripts/format_metapangenome_catlas_dom_abund.R"
 
 rule corncob_for_dominating_set_differential_abund:
     input: 
-        corncob="outputs/sgc_pangenome_catlases_corncob/corncob_install.txt",
-        dom_abund_pruned="outputs/sgc_pangenome_catlases/{acc}_k31_r10_abund/all_dom_abund_pruned.tsv",
-        ntcard="outputs/ntcard/all_kmer_count.tsv",
-        info = "inputs/working_metadata.tsv"
+        dom_abund_pruned="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_abund/all_dom_abund_pruned.tsv",
+        ntcard="outputs/mgx_ntcard/all_kmer_count.tsv",
+        info = "inputs/metadata.tsv"
     output: 
-        all_ccs = "outputs/sgc_pangenome_catlases_corncob/{acc}_all_ccs.tsv",
-        sig_ccs = "outputs/sgc_pangenome_catlases_corncob/{acc}_sig_ccs.tsv"
+        all_ccs = "outputs/metapangenome_sgc_pangenome_catlases_corncob/{acc}_all_ccs.tsv",
+        sig_ccs = "outputs/metapangenome_sgc_catlases_corncob/{acc}_sig_ccs.tsv"
     resources: 
         mem_mb = 16000,
-        tmpdir = TMPDIR
+        time_min = 1440
     threads: 1
     conda: 'envs/corncob.yml'
     script: "scripts/corncob_dda.R"

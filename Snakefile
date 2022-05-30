@@ -6,6 +6,44 @@ metadata_file = config["metadata_file"]
 m = pd.read_csv(metadata_file, header = 0)
 SAMPLES = m['sample'].unique().tolist()
 
+class Checkpoint_GrabAccessions:
+    """
+    Define a class to determine the query accessions to use based on sourmash gather results.
+    This approach is documented at this url: 
+    http://ivory.idyll.org/blog/2021-snakemake-checkpoints.html
+    """
+    def __init__(self, pattern):
+        self.pattern = pattern
+
+    def get_genome_accs(self, gtdb_species):
+        acc_csv = 'outputs/query_genomes_from_sourmash_gather/query_genomes.csv'
+        assert os.path.exists(acc_csv)
+
+        genome_accs = []
+        with open(acc_csv, 'rt') as fp:
+           r = csv.DictReader(fp)
+           for row in r:
+               acc = row['accession']
+               genome_accs.append(acc)
+        print(f'loaded {len(genome_accs)} accessions from {acc_csv}.')
+
+        return genome_accs
+
+    def __call__(self, w):
+        global checkpoints
+
+        # wait for the results of rule 'mgx_select_query_genomes_shared_across_samples'; 
+        # this will trigger exception until that rule has been run.
+        checkpoints.mgx_select_query_genomes_shared_across_samples.get(**w)
+
+        # parse accessions in gather output file
+        genome_accs = self.get_genome_accs(**w)
+
+        p = expand(self.pattern, acc=genome_accs, **w)
+        return p
+
+rule all:
+    input: "outputs/metapangenome_sgc_catlases_corncob_done.txt"
 
 ########################################
 ## PREPROCESSING
@@ -91,6 +129,28 @@ rule mgx_kmer_trim_reads:
     interleave-reads.py {input} | trim-low-abund.py --gzip -C 3 -Z 18 -M 60e9 -V - -o {output}
     '''
 
+rule mgx_ntcard_count_kmers_per_sample:
+    input: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
+    output: 
+        fstat = "outputs/mgx_ntcard/{sampel}.fstat",
+        freq = "outputs/mgx_ntcard/{sample}.freq"
+    conda: 'envs/ntcard.yml'
+    threads: 4
+    resources:
+        mem_mb=4000
+    shell:'''
+    ntcard -k31 -c2000 -t {threads} -o {output.freq} {input} &> {output.fstat}
+    '''
+
+rule mgx_format_ntcard_kmer_count:
+    input: fstat = expand("outputs/mgx_ntcard/{sample}.fstat", sample = SAMPLES)
+    output: tsv = 'outputs/mgx_ntcard/all_kmer_count.tsv'
+    conda: "envs/tidyverse.yml"
+    threads: 1
+    resources:
+        mem_mb=4000
+    script: "scripts/format_ntcard_kmer_count.R"
+
 ##########################################################
 ## Determine taxonomic profile of metagenomes &
 ## identified species that are present in all metagenomes
@@ -101,14 +161,14 @@ rule mgx_sourmash_sketch:
     Create a FracMinHash sketch of the quality-controlled reads.
     """
     input: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
-    output: "outputs/mgx_sigs/{sample}.sig"
+    output: "outputs/mgx_sourmash_sigs/{sample}.sig"
     threads: 1
     resources:
         mem_mb=lambda wildcards, attempt: attempt *1000,
         time_min=1200,
     conda: "envs/sourmash.yml"
     shell:"""
-        sourmash sketch dna -p k=21,31,51 scaled=2000,abund -o {output} --name {wildcards.sample} {input}
+    sourmash sketch dna -p k=21,31,51 scaled=2000,abund -o {output} --name {wildcards.sample} {input}
     """
 
 rule download_sourmash_gather_database:
@@ -139,28 +199,39 @@ rule mgx_sourmash_gather:
     If this step doesn't produce many matches, the database can be substituted for GenBank databases (built March 2022, see: https://sourmash.readthedocs.io/en/latest/databases.html).
     """
     input:
-        sig="outputs/sample_sigs/{sample}.sig",
+        sig="outputs/mgx_sourmash_sigs/{sample}.sig",
         db="inputs/gtdb-rs207.genomic-reps.dna.k31.zip",
     output: 
-        csv="outputs/sample_gather/{sample}_gather_gtdb-rs202-genomic-reps.csv",
+        csv="outputs/mgx_sourmash_gather/{sample}_gather_gtdb-rs202-genomic-reps.csv",
     conda: 'envs/sourmash.yml'
     resources:
-        mem_mb = 128000,
+        mem_mb = 12000,
         tmpdir = TMPDIR
     threads: 1
-    benchmark: "benchmarks/{sample}_gather.tsv"
+    benchmark: "benchmarks/mgx/{sample}_gather.tsv"
     shell:'''
     sourmash gather -o {output.csv} --threshold-bp 0 --scaled 2000 -k 31 {input.sig} {input.db} 
     '''
 
-checkpoint mgx_select_species_shared_across_samples:
+checkpoint mgx_select_query_genomes_shared_across_samples:
     """
-    
+    Read in the gather results for all samples, and select query genomes that are present in some minimum fraction of samples.
+    The fraction of samples a genome must be detected in is set in params.min_sample_frac, and by default is set to 1.
+    We intentionally use the reps database so that there will be more shared genomes detected between samples, at the expense of the more of the sample being identifiable.
+    (E.g. if E. coli is present in all samples, we'll get the same E. coli reps match instead of the best matching genome, which may be different between samples.)
     """
     input:
+        gather=expand("outputs/mgx_sourmash_gather/{sample}_gather_gtdb-rs202-genomic-reps.csv", sample = SAMPLES)
+        lineages="inputs/gtdb-rs207.taxonomy.csv.gz"
     output:
-        lineages="",
-
+        query_genomes="outputs/query_genomes_from_sourmash_gather/query_genomes.csv",
+    params: min_sample_frac = 1
+    conda: 'envs/tidyverse.yml'
+    resources:
+        mem_mb = 4000,
+        tmpdir = TMPDIR
+    script: "scripts/mgx_select_query_genomes_shared_across_samples.R"
+    
 ################################################################
 ##
 ################################################################
@@ -177,7 +248,7 @@ rule make_query_genome_info_csv:
     """
 
 rule download_query_genome:
-    input: csvfile = ancient('outputs/genbank_genomes/{acc}.info.csv')
+    input: csvfile = ancient('outputs/query_genomes/{acc}.info.csv')
     output: genome = "outputs/query_genomes/{acc}_genomic.fna.gz"
     resources:
         mem_mb = 500,
@@ -208,13 +279,13 @@ checkpoint query_genomes_charcoal_decontaminate:
     Charcoal decontaminates the query genomes prior to running the assembly graph queries.
     """
     input:
-        genomes = ancient(Checkpoint_GatherResults("outputs/query_genomes/{acc}_genomic.fna.gz")),
+        genomes = ancient(Checkpoint_GrabAccessions("outputs/query_genomes/{acc}_genomic.fna.gz")), # expands the {acc} wildcard using the Checkpoint_GrabAccessions class
         genome_list = "outputs/charcoal_conf/charcoal.genome-list.txt",
         conf = "inputs/charcoal-conf.yml",
         genome_lineages="inputs/gtdb-rs207.taxonomy.csv.gz"
         db="inputs/gtdb-rs207.genomic-reps.k31.zip"
         db_lineages="inputs/gtdb-rs207.taxonomy.csv.gz"
-    output: directory("outputs/query_genomes_charcoal/")
+    output: directory("outputs/query_genomes_charcoal/")  # re-creates the {acc} wildcard, now assoc with charcoal output
         #"outputs/query_genomes_charcoal/{acc}_genomic.fna.gz.clean.fa.gz"
     resources:
         mem_mb = 64000,
@@ -237,7 +308,7 @@ rule mgx_make_sgc_conf:
     """
     Make configuration file that will be used for mgx_spacegraphcats_built_catlas and mgx_spacegraphcats_query_genomes_extract_reads
     """
-    input: queries = checkpoint_query_genomes_charcoal_decontaminate 
+    input: queries = checkpoint_query_genomes_charcoal_decontaminate # expands the {acc} wildcard from charcoal
     output: conf = "outputs/sgc_conf/{sample}_k31_r1_conf.yml"
     resources:
         mem_mb = 500,
@@ -292,7 +363,7 @@ checkpoint mgx_spacegraphcats_query_genomes_extract_reads:
     input: 
         conf = ancient("outputs/sgc_conf/{sample}_k31_r1_conf.yml"),
         reads = "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
-    output: directory("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/")
+    output: directory("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/")  # re-creates the {acc} wildcard using sgc outputs
         #"outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz",
     params: outdir = "outputs/mgx_sgc_genome_queries"
     conda: "envs/spacegraphcats.yml"
@@ -360,6 +431,7 @@ rule metapangeome_spacegraphcats_build:
     resources: 
         mem_mb = 300000,
         time_min = 1440
+    threads: 1
     conda: "envs/spacegraphcats.yml"
     params: outdir = "outputs/sgc_pangenome_catlases"
     shell:'''
@@ -447,7 +519,7 @@ rule corncob_for_dominating_set_differential_abund:
         ntcard="outputs/mgx_ntcard/all_kmer_count.tsv",
         info = "inputs/metadata.tsv"
     output: 
-        all_ccs = "outputs/metapangenome_sgc_pangenome_catlases_corncob/{acc}_all_ccs.tsv",
+        all_ccs = "outputs/metapangenome_sgc_catlases_corncob/{acc}_all_ccs.tsv",
         sig_ccs = "outputs/metapangenome_sgc_catlases_corncob/{acc}_sig_ccs.tsv"
     resources: 
         mem_mb = 16000,
@@ -456,6 +528,17 @@ rule corncob_for_dominating_set_differential_abund:
     conda: 'envs/corncob.yml'
     script: "scripts/corncob_dda.R"
 
+def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1:
+    # Expand checkpoint to get query genome accs, which will be used as queries for spacegraphcats extract
+    # checkpoint_output encodes the output dir from the checkpoint rule.
+    checkpoint_output = checkpoints.mgx_spacegraphcats_query_genomes_extract_reads.get(**wildcards).output[0]
+    file_names = expand("outputs/metapangenome_sgc_catlases_corncob/{acc}_sig_ccs.tsv",
+                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz")).acc)
+    return file_names
+
+rule dummy_solve_sgc:
+    input: checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1
+    output: touch("outputs/metapangenome_sgc_catlases_corncob_done.txt")
 
 #######################################################################
 ## Make reference multifasta sequence and annotate metapangenome graph

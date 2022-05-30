@@ -16,14 +16,14 @@ library(corncob)
 
 # read in sample metadata
 info <- read_tsv(snakemake@input[["info"]]) %>%
-  select(study_accession, library_name, diagnosis) %>%
+  select(sample, var) %>%
   distinct() 
 
 # read in abundtrim lib size info
 libsizes <- read_tsv(snakemake@input[['ntcard']])
 
 # join metadata
-info <- left_join(info, libsizes, by = "library_name")
+info <- left_join(info, libsizes, by = "sample")
 
 # import counts -----------------------------------------------------------
 
@@ -46,12 +46,12 @@ count_info_t %<>%
 
 ## Join up the data -- observations are rows and variables are columns
 # join takes too long, use a different method
-info <- info[order(match(info$library_name, count_info_t$sample)), ]
+info <- info[order(match(info$sample, count_info_t$sample)), ]
 # check that order matches; fail if not
-stopifnot(all.equal(info$library_name, count_info_t$sample))
+stopifnot(all.equal(info$sample, count_info_t$sample))
 df <- as.data.frame(cbind(info, count_info_t[ , -1])) 
 # change levels of diagnosis so nonIBD is default
-df$diagnosis <- factor(df$diagnosis, levels = c("nonIBD", "CD", "UC"))
+df$diagnosis <- factor(df$var, levels = c("nonIBD", "CD")) # THIS NEEDS TO BE UPDATE TO WHATEVER THE USER IS DOING
 
 # Run corncob -------------------------------------------------------------
 
@@ -67,9 +67,9 @@ fit_corncob <- function(col_num) {
   sink(tc, type="message")
   # run corncob with LRT
   corncob_out <- df %>%
-    select(study_accession, num_kmers, diagnosis, all_of(col_num)) %>%
+    select(num_kmers, diagnosis, all_of(col_num)) %>%
     rename(ww = 4) %>%
-    corncob::bbdml(formula = cbind(ww, num_kmers - ww) ~ condition,
+    corncob::bbdml(formula = cbind(ww, num_kmers - ww) ~ var,
                    #formula_null = cbind(ww, num_kmers - ww) ~ variable, # use this to block if you have additional variables
                    phi.formula = ~ 1,
                    phi.formula_null = ~ 1,

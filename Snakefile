@@ -2,8 +2,7 @@ import pandas as pd
 import glob
 import os
 
-metadata_file = config["metadata_file"]
-m = pd.read_csv(metadata_file, header = 0)
+m = pd.read_csv("inputs/metadata.csv", header = 0)
 SAMPLES = m['sample'].unique().tolist()
 
 class Checkpoint_GrabAccessions:
@@ -132,7 +131,7 @@ rule mgx_kmer_trim_reads:
 rule mgx_ntcard_count_kmers_per_sample:
     input: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
     output: 
-        fstat = "outputs/mgx_ntcard/{sampel}.fstat",
+        fstat = "outputs/mgx_ntcard/{sample}.fstat",
         freq = "outputs/mgx_ntcard/{sample}.freq"
     conda: 'envs/ntcard.yml'
     threads: 4
@@ -206,7 +205,6 @@ rule mgx_sourmash_gather:
     conda: 'envs/sourmash.yml'
     resources:
         mem_mb = 12000,
-        tmpdir = TMPDIR
     threads: 1
     benchmark: "benchmarks/mgx/{sample}_gather.tsv"
     shell:'''
@@ -221,7 +219,7 @@ checkpoint mgx_select_query_genomes_shared_across_samples:
     (E.g. if E. coli is present in all samples, we'll get the same E. coli reps match instead of the best matching genome, which may be different between samples.)
     """
     input:
-        gather=expand("outputs/mgx_sourmash_gather/{sample}_gather_gtdb-rs202-genomic-reps.csv", sample = SAMPLES)
+        gather=expand("outputs/mgx_sourmash_gather/{sample}_gather_gtdb-rs202-genomic-reps.csv", sample = SAMPLES),
         lineages="inputs/gtdb-rs207.taxonomy.csv.gz"
     output:
         query_genomes="outputs/query_genomes_from_sourmash_gather/query_genomes.csv",
@@ -229,7 +227,6 @@ checkpoint mgx_select_query_genomes_shared_across_samples:
     conda: 'envs/tidyverse.yml'
     resources:
         mem_mb = 4000,
-        tmpdir = TMPDIR
     script: "scripts/mgx_select_query_genomes_shared_across_samples.R"
     
 ################################################################
@@ -282,8 +279,8 @@ checkpoint query_genomes_charcoal_decontaminate:
         genomes = ancient(Checkpoint_GrabAccessions("outputs/query_genomes/{acc}_genomic.fna.gz")), # expands the {acc} wildcard using the Checkpoint_GrabAccessions class
         genome_list = "outputs/charcoal_conf/charcoal.genome-list.txt",
         conf = "inputs/charcoal-conf.yml",
-        genome_lineages="inputs/gtdb-rs207.taxonomy.csv.gz"
-        db="inputs/gtdb-rs207.genomic-reps.k31.zip"
+        genome_lineages="inputs/gtdb-rs207.taxonomy.csv.gz",
+        db="inputs/gtdb-rs207.genomic-reps.k31.zip",
         db_lineages="inputs/gtdb-rs207.taxonomy.csv.gz"
     output: directory("outputs/query_genomes_charcoal/")  # re-creates the {acc} wildcard, now assoc with charcoal output
         #"outputs/query_genomes_charcoal/{acc}_genomic.fna.gz.clean.fa.gz"
@@ -296,7 +293,7 @@ checkpoint query_genomes_charcoal_decontaminate:
     python -m charcoal run {input.conf} -j {threads} clean --nolock --latency-wait 15 --rerun-incomplete
     '''
 
-def checkpoint_query_genomes_charcoal_decontaminate:
+def checkpoint_query_genomes_charcoal_decontaminate(wildcards):
     # Expand checkpoint to get query genome accs, which will be used as queries for spacegraphcats extract
     # checkpoint_output encodes the output dir from the checkpoint rule.
     checkpoint_output = checkpoints.query_genomes_charcoal_decontaminate.get(**wildcards).output[0]
@@ -528,7 +525,7 @@ rule corncob_for_dominating_set_differential_abund:
     conda: 'envs/corncob.yml'
     script: "scripts/corncob_dda.R"
 
-def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1:
+def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1(wildcards):
     # Expand checkpoint to get query genome accs, which will be used as queries for spacegraphcats extract
     # checkpoint_output encodes the output dir from the checkpoint rule.
     checkpoint_output = checkpoints.mgx_spacegraphcats_query_genomes_extract_reads.get(**wildcards).output[0]

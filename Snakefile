@@ -42,7 +42,7 @@ class Checkpoint_GrabAccessions:
         return p
 
 rule all:
-    input: "outputs/metapangenome_sgc_catlases_corncob_done.txt"
+    input: Checkpoint_GrabAccessions("outputs/metapangenome_sgc_catlases_corncob/{acc}_sig_ccs.tsv")
 
 ########################################
 ## PREPROCESSING
@@ -119,7 +119,7 @@ rule mgx_kmer_trim_reads:
         'outputs/mgx_bbduk/{sample}_R1.nohost.fq.gz',
         'outputs/mgx_bbduk/{sample}_R2.nohost.fq.gz'
     output: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
-    conda: 'envs/sourmash.yml'
+    conda: 'envs/spacegraphcats.yml'
     threads: 1
     resources: 
         mem_mb = 64000,
@@ -136,7 +136,8 @@ rule mgx_ntcard_count_kmers_per_sample:
     conda: 'envs/ntcard.yml'
     threads: 4
     resources:
-        mem_mb=4000
+        mem_mb=4000, 
+        time_min=60
     shell:'''
     ntcard -k31 -c2000 -t {threads} -o {output.freq} {input} &> {output.fstat}
     '''
@@ -147,7 +148,8 @@ rule mgx_format_ntcard_kmer_count:
     conda: "envs/tidyverse.yml"
     threads: 1
     resources:
-        mem_mb=4000
+        mem_mb=4000,
+        time_min=120
     script: "scripts/format_ntcard_kmer_count.R"
 
 ##########################################################
@@ -167,11 +169,11 @@ rule mgx_sourmash_sketch:
         time_min=1200,
     conda: "envs/sourmash.yml"
     shell:"""
-    sourmash sketch dna -p k=21,31,51 scaled=2000,abund -o {output} --name {wildcards.sample} {input}
+    sourmash sketch dna -p k=21,k=31,k=51,scaled=2000,abund -o {output} --name {wildcards.sample} {input}
     """
 
 rule download_sourmash_gather_database:
-    output: "inputs/gtdb-rs207.genomic-reps.k31.zip"
+    output: "inputs/gtdb-rs207.genomic-reps.dna.k31.zip"
     threads: 1
     resources:
         mem_mb = 800,
@@ -205,6 +207,7 @@ rule mgx_sourmash_gather:
     conda: 'envs/sourmash.yml'
     resources:
         mem_mb = 12000,
+        time_min = 720
     threads: 1
     benchmark: "benchmarks/mgx/{sample}_gather.tsv"
     shell:'''
@@ -227,6 +230,7 @@ checkpoint mgx_select_query_genomes_shared_across_samples:
     conda: 'envs/tidyverse.yml'
     resources:
         mem_mb = 4000,
+        time_min = 60
     script: "scripts/mgx_select_query_genomes_shared_across_samples.R"
     
 ################################################################
@@ -372,12 +376,27 @@ checkpoint mgx_spacegraphcats_query_genomes_extract_reads:
     python -m spacegraphcats run {input.conf} extract_reads --nolock --outdir={params.outdir} --rerun-incomplete 
     '''
 
+def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1(wildcards):
+    # Expand checkpoint to get query genome accs, which will be used as queries for spacegraphcats extract
+    # checkpoint_output encodes the output dir from the checkpoint rule.
+    checkpoint_output = checkpoints.mgx_spacegraphcats_query_genomes_extract_reads.get(**wildcards).output[0]
+    file_names = expand("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz",
+                        sample = SAMPLES,
+                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz")).acc)
+    return file_names
+
+rule dummy_solve_sgc:
+    input: checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1 # solve the SAMPLES/ACC wildcards from the checkpoint.
+    output: touch("outputs/mgx_spacegraphcats_query_genomes_extract_reads_done.txt")
+
 ##########################################################
 ## Build metapangenome graphs
 ##########################################################
 
 rule diginorm_spacegraphcats_query_genomes:
-    input: expand("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{{acc}}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz", sample = SAMPLES)
+    input:
+        dummy = "outputs/mgx_spacegraphcats_query_genomes_extract_reads_done.txt",
+        reads = expand("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{{acc}}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz", sample = SAMPLES) # recreate ACC wildcard using Checkpoint_GrabAccessions to solve at end of workflow.
     output: "outputs/mgx_sgc_genome_queries_diginorm/{acc}.diginorm.fa.gz"
     resources:
         mem_mb = 164000,
@@ -525,17 +544,19 @@ rule corncob_for_dominating_set_differential_abund:
     conda: 'envs/corncob.yml'
     script: "scripts/corncob_dda.R"
 
-def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1(wildcards):
-    # Expand checkpoint to get query genome accs, which will be used as queries for spacegraphcats extract
-    # checkpoint_output encodes the output dir from the checkpoint rule.
-    checkpoint_output = checkpoints.mgx_spacegraphcats_query_genomes_extract_reads.get(**wildcards).output[0]
-    file_names = expand("outputs/metapangenome_sgc_catlases_corncob/{acc}_sig_ccs.tsv",
-                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz")).acc)
-    return file_names
 
-rule dummy_solve_sgc:
-    input: checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1
-    output: touch("outputs/metapangenome_sgc_catlases_corncob_done.txt")
+# TODO:
+# The commented out code should work, but doesn't.
+# It's missing the "sample" wildcard, because that's part of the checkpoint output filename, even though that's expanded earlier in the DAG arm.
+# Checking to see if Checkpoint_GrabAccessions works...as this also specifies the  
+#def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_2(wildcards):
+#    # Expand checkpoint to get query genome accs, which will be used as queries for spacegraphcats extract
+#    # checkpoint_output encodes the output dir from the checkpoint rule.
+#    checkpoint_output = checkpoints.mgx_spacegraphcats_query_genomes_extract_reads.get(**wildcards).output[0]
+#    file_names = expand("outputs/metapangenome_sgc_catlases_corncob/{acc}_sig_ccs.tsv",
+#                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz")).acc)
+#    return file_names
+
 
 #######################################################################
 ## Make reference multifasta sequence and annotate metapangenome graph

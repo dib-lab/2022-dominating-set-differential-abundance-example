@@ -37,4 +37,4 @@ query_genome_results <- gather_results %>%
   select(accession, superkingdom, phylum, class, order, family, genus, species) %>%
   distinct()
 
-write_csv(query_genomes_results, snakemake@output[['query_genomes']])
+write_csv(query_genome_results, snakemake@output[['query_genomes']])

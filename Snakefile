@@ -1,4 +1,5 @@
 import pandas as pd
+import csv
 import glob
 import os
 
@@ -14,7 +15,7 @@ class Checkpoint_GrabAccessions:
     def __init__(self, pattern):
         self.pattern = pattern
 
-    def get_genome_accs(self, gtdb_species):
+    def get_genome_accs(self):
         acc_csv = 'outputs/query_genomes_from_sourmash_gather/query_genomes.csv'
         assert os.path.exists(acc_csv)
 
@@ -43,6 +44,7 @@ class Checkpoint_GrabAccessions:
 
 rule all:
     input: Checkpoint_GrabAccessions("outputs/metapangenome_sgc_catlases_corncob/{acc}_sig_ccs.tsv")
+        
 
 ########################################
 ## PREPROCESSING
@@ -116,8 +118,8 @@ rule mgx_kmer_trim_reads:
     K-mer trimming is an important pre-processing step before building the cDBG, as erroneous k-mers will increase the complexity of the graph.
     """
     input: 
-        'outputs/mgx_bbduk/{sample}_R1.nohost.fq.gz',
-        'outputs/mgx_bbduk/{sample}_R2.nohost.fq.gz'
+        ancient('outputs/mgx_bbduk/{sample}_R1.nohost.fq.gz'),
+        ancient('outputs/mgx_bbduk/{sample}_R2.nohost.fq.gz')
     output: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
     conda: 'envs/spacegraphcats.yml'
     threads: 1
@@ -129,7 +131,7 @@ rule mgx_kmer_trim_reads:
     '''
 
 rule mgx_ntcard_count_kmers_per_sample:
-    input: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
+    input: ancient("outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz")
     output: 
         fstat = "outputs/mgx_ntcard/{sample}.fstat",
         freq = "outputs/mgx_ntcard/{sample}.freq"
@@ -161,7 +163,7 @@ rule mgx_sourmash_sketch:
     """
     Create a FracMinHash sketch of the quality-controlled reads.
     """
-    input: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
+    input: ancient("outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz")
     output: "outputs/mgx_sourmash_sigs/{sample}.sig"
     threads: 1
     resources:
@@ -200,7 +202,7 @@ rule mgx_sourmash_gather:
     If this step doesn't produce many matches, the database can be substituted for GenBank databases (built March 2022, see: https://sourmash.readthedocs.io/en/latest/databases.html).
     """
     input:
-        sig="outputs/mgx_sourmash_sigs/{sample}.sig",
+        sig=ancient("outputs/mgx_sourmash_sigs/{sample}.sig"),
         db="inputs/gtdb-rs207.genomic-reps.dna.k31.zip",
     output: 
         csv="outputs/mgx_sourmash_gather/{sample}_gather_gtdb-rs202-genomic-reps.csv",
@@ -217,7 +219,7 @@ rule mgx_sourmash_gather:
 checkpoint mgx_select_query_genomes_shared_across_samples:
     """
     Read in the gather results for all samples, and select query genomes that are present in some minimum fraction of samples.
-    The fraction of samples a genome must be detected in is set in params.min_sample_frac, and by default is set to 1.
+    The fraction of samples a genome must be detected in is set in params.min_sample_frac, and by default is set to 0.6 (it should probably be set to 1, but these samples are so dramatically reduced in size that 0.6 made more sense for the test data set).
     We intentionally use the reps database so that there will be more shared genomes detected between samples, at the expense of the more of the sample being identifiable.
     (E.g. if E. coli is present in all samples, we'll get the same E. coli reps match instead of the best matching genome, which may be different between samples.)
     """
@@ -226,7 +228,7 @@ checkpoint mgx_select_query_genomes_shared_across_samples:
         lineages="inputs/gtdb-rs207.taxonomy.csv.gz"
     output:
         query_genomes="outputs/query_genomes_from_sourmash_gather/query_genomes.csv",
-    params: min_sample_frac = 1
+    params: min_sample_frac = 0.6
     conda: 'envs/tidyverse.yml'
     resources:
         mem_mb = 4000,
@@ -274,6 +276,17 @@ rule download_query_genome:
                     print(f"...wrote {len(content)} bytes to {output.genome}",
                         file=sys.stderr)
 
+
+rule generate_charcoal_genome_list:
+    input:  ancient(Checkpoint_GrabAccessions("outputs/query_genomes/{acc}_genomic.fna.gz"))
+    output: "outputs/charcoal_conf/charcoal.genome-list.txt"
+    threads: 1
+    resources:
+        mem_mb=500
+    shell:'''
+    ls outputs/query_genomes/*gz | xargs -n 1 basename > {output} 
+    '''
+
 checkpoint query_genomes_charcoal_decontaminate:
     """
     Because a relatively low containment index (0.01) between a query and a metagenome is necessary to recover ~20-40% of an organisms genome from the metagenome, contamination could potentially lead to recovery of many off target sequences. 
@@ -284,7 +297,7 @@ checkpoint query_genomes_charcoal_decontaminate:
         genome_list = "outputs/charcoal_conf/charcoal.genome-list.txt",
         conf = "inputs/charcoal-conf.yml",
         genome_lineages="inputs/gtdb-rs207.taxonomy.csv.gz",
-        db="inputs/gtdb-rs207.genomic-reps.k31.zip",
+        db="inputs/gtdb-rs207.genomic-reps.dna.k31.zip",
         db_lineages="inputs/gtdb-rs207.taxonomy.csv.gz"
     output: directory("outputs/query_genomes_charcoal/")  # re-creates the {acc} wildcard, now assoc with charcoal output
         #"outputs/query_genomes_charcoal/{acc}_genomic.fna.gz.clean.fa.gz"
@@ -380,14 +393,16 @@ def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1(wildcards):
     # Expand checkpoint to get query genome accs, which will be used as queries for spacegraphcats extract
     # checkpoint_output encodes the output dir from the checkpoint rule.
     checkpoint_output = checkpoints.mgx_spacegraphcats_query_genomes_extract_reads.get(**wildcards).output[0]
-    file_names = expand("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz",
-                        sample = SAMPLES,
+    #file_names = expand("outputs/mgx_sgc_genome_queries_hardtrim/{acc}.fa.gz",
+    file_names = expand("outputs/mgx_sgc_genome_queries/{{sample}}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz",
+                        #sample = wildcards.SAMPLES,
                         acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz")).acc)
     return file_names
 
 rule dummy_solve_sgc:
     input: checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1 # solve the SAMPLES/ACC wildcards from the checkpoint.
-    output: touch("outputs/mgx_spacegraphcats_query_genomes_extract_reads_done.txt")
+    #output: touch("outputs/mgx_spacegraphcats_query_genomes_extract_reads_{sample}_done.txt")
+    output: touch("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz") 
 
 ##########################################################
 ## Build metapangenome graphs
@@ -395,7 +410,8 @@ rule dummy_solve_sgc:
 
 rule diginorm_spacegraphcats_query_genomes:
     input:
-        dummy = "outputs/mgx_spacegraphcats_query_genomes_extract_reads_done.txt",
+        #reads = checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1, # solve the SAMPLES/ACC wildcards from the checkpoint.
+        #dummy = expand("outputs/mgx_spacegraphcats_query_genomes_extract_reads_{sample}_done.txt", sample = SAMPLES),
         reads = expand("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{{acc}}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz", sample = SAMPLES) # recreate ACC wildcard using Checkpoint_GrabAccessions to solve at end of workflow.
     output: "outputs/mgx_sgc_genome_queries_diginorm/{acc}.diginorm.fa.gz"
     resources:
@@ -404,7 +420,7 @@ rule diginorm_spacegraphcats_query_genomes:
     threads: 1
     conda: "envs/spacegraphcats.yml"
     shell:'''
-    zcat {input} | normalize-by-median.py -k 20 -C 20 -M 164e9 --gzip -o {output} -
+    zcat {input.reads} | normalize-by-median.py -k 20 -C 20 -M 164e9 --gzip -o {output} -
     '''
 
 rule hardtrim_spacegraphcats_query_genomes:
@@ -463,7 +479,7 @@ rule metapangenome_spacegraphcats_catlas_cdbg_to_pieces_map:
         cdbg = "outputs/metapangenome_sgc_catlases/{acc}_k31/cdbg.gxt",
         catlas = "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/catlas.csv"
     output: "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/cdbg_to_pieces.csv"
-    conda: "envs/spacegraphcats2.yml"
+    conda: "envs/spacegraphcats.yml"
     resources: 
         mem_mb = 16000,
         time_min = 720
@@ -533,7 +549,7 @@ rule corncob_for_dominating_set_differential_abund:
     input: 
         dom_abund_pruned="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_abund/all_dom_abund_pruned.tsv",
         ntcard="outputs/mgx_ntcard/all_kmer_count.tsv",
-        info = "inputs/metadata.tsv"
+        info = "inputs/metadata.csv"
     output: 
         all_ccs = "outputs/metapangenome_sgc_catlases_corncob/{acc}_all_ccs.tsv",
         sig_ccs = "outputs/metapangenome_sgc_catlases_corncob/{acc}_sig_ccs.tsv"
@@ -545,10 +561,6 @@ rule corncob_for_dominating_set_differential_abund:
     script: "scripts/corncob_dda.R"
 
 
-# TODO:
-# The commented out code should work, but doesn't.
-# It's missing the "sample" wildcard, because that's part of the checkpoint output filename, even though that's expanded earlier in the DAG arm.
-# Checking to see if Checkpoint_GrabAccessions works...as this also specifies the  
 #def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_2(wildcards):
 #    # Expand checkpoint to get query genome accs, which will be used as queries for spacegraphcats extract
 #    # checkpoint_output encodes the output dir from the checkpoint rule.

@@ -194,6 +194,17 @@ rule download_sourmash_gather_database_lineages:
     wget -O {output} https://osf.io/v3zmg/download
     '''
 
+rule gunzip_sourmash_gather_database_lineages:
+    input: "inputs/gtdb-rs207.taxonomy.csv.gz"
+    output: "inputs/gtdb-rs207.taxonomy.csv"
+    threads: 1
+    resources:
+        mem_mb = 800,
+        time_min = 30
+    shell:'''
+    gunzip -c {input} > {output}
+    '''
+
 rule mgx_sourmash_gather:
     """
     Determine the taxonomic profile of each metagenome using sourmash gather.
@@ -225,7 +236,7 @@ checkpoint mgx_select_query_genomes_shared_across_samples:
     """
     input:
         gather=expand("outputs/mgx_sourmash_gather/{sample}_gather_gtdb-rs202-genomic-reps.csv", sample = SAMPLES),
-        lineages="inputs/gtdb-rs207.taxonomy.csv.gz"
+        lineages="inputs/gtdb-rs207.taxonomy.csv"
     output:
         query_genomes="outputs/query_genomes_from_sourmash_gather/query_genomes.csv",
     params: min_sample_frac = 0.6
@@ -282,7 +293,8 @@ rule generate_charcoal_genome_list:
     output: "outputs/charcoal_conf/charcoal.genome-list.txt"
     threads: 1
     resources:
-        mem_mb=500
+        mem_mb=500,
+        time_min = 10
     shell:'''
     ls outputs/query_genomes/*gz | xargs -n 1 basename > {output} 
     '''
@@ -296,11 +308,13 @@ checkpoint query_genomes_charcoal_decontaminate:
         genomes = ancient(Checkpoint_GrabAccessions("outputs/query_genomes/{acc}_genomic.fna.gz")), # expands the {acc} wildcard using the Checkpoint_GrabAccessions class
         genome_list = "outputs/charcoal_conf/charcoal.genome-list.txt",
         conf = "inputs/charcoal-conf.yml",
-        genome_lineages="inputs/gtdb-rs207.taxonomy.csv.gz",
+        genome_lineages="outputs/query_genomes_from_sourmash_gather/query_genomes.csv",
         db="inputs/gtdb-rs207.genomic-reps.dna.k31.zip",
-        db_lineages="inputs/gtdb-rs207.taxonomy.csv.gz"
-    output: directory("outputs/query_genomes_charcoal/")  # re-creates the {acc} wildcard, now assoc with charcoal output
+        db_lineages="inputs/gtdb-rs207.taxonomy.csv"
+    output: 
+        directory("outputs/query_genomes_charcoal/"),  # re-creates the {acc} wildcard, now assoc with charcoal output
         #"outputs/query_genomes_charcoal/{acc}_genomic.fna.gz.clean.fa.gz"
+        "outputs/query_genomes_charcoal/stage1_hitlist.csv"
     resources:
         mem_mb = 64000,
         time_min = 1440

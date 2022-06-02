@@ -15,7 +15,7 @@ library(corncob)
 # read in metadata --------------------------------------------------------
 
 # read in sample metadata
-info <- read_tsv(snakemake@input[["info"]]) %>%
+info <- read_csv(snakemake@input[["info"]]) %>%
   select(sample, var) %>%
   distinct() 
 
@@ -51,7 +51,7 @@ info <- info[order(match(info$sample, count_info_t$sample)), ]
 stopifnot(all.equal(info$sample, count_info_t$sample))
 df <- as.data.frame(cbind(info, count_info_t[ , -1])) 
 # change levels of diagnosis so nonIBD is default
-df$diagnosis <- factor(df$var, levels = c("nonIBD", "CD")) # THIS NEEDS TO BE UPDATE TO WHATEVER THE USER IS DOING
+df$var <- factor(df$var, levels = c("nonIBD", "CD")) # THIS NEEDS TO BE UPDATE TO WHATEVER THE USER IS DOING
 
 # Run corncob -------------------------------------------------------------
 
@@ -67,7 +67,7 @@ fit_corncob <- function(col_num) {
   sink(tc, type="message")
   # run corncob with LRT
   corncob_out <- df %>%
-    select(num_kmers, diagnosis, all_of(col_num)) %>%
+    select(num_kmers, var, all_of(col_num)) %>%
     rename(ww = 4) %>%
     corncob::bbdml(formula = cbind(ww, num_kmers - ww) ~ var,
                    #formula_null = cbind(ww, num_kmers - ww) ~ variable, # use this to block if you have additional variables

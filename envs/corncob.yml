@@ -4,3 +4,4 @@ channels:
     - defaults
 dependencies:
     - r-corncob=0.2.0
+    - r-tidyverse=1.3.1

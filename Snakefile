@@ -60,6 +60,7 @@ rule mgx_fastp_reads:
     output: 
         r1 = 'outputs/mgx_fastp/{sample}_R1.fastp.fq.gz',
         r2 = 'outputs/mgx_fastp/{sample}_R2.fastp.fq.gz',
+        html = 'outputs/mgx_fastp/{sample}.html',
         json = 'outputs/mgx_fastp/{sample}.json'
     conda: 'envs/fastp.yml'
     threads: 1
@@ -67,7 +68,7 @@ rule mgx_fastp_reads:
         mem_mb = 8000,
         time_min = 720
     shell:'''
-    fastp -i {input.r1} -I {input.r2} -o {output.r1} -O {output.r2} -q 4 -j {output.json} -l 31 -c
+    fastp -i {input.r1} -I {input.r2} -o {output.r1} -O {output.r2} -q 4 --html {output.html} -j {output.json} -l 31 -c
     '''
 
 rule download_human_host_db:
@@ -239,7 +240,7 @@ checkpoint mgx_select_query_genomes_shared_across_samples:
         lineages="inputs/gtdb-rs207.taxonomy.csv"
     output:
         query_genomes="outputs/query_genomes_from_sourmash_gather/query_genomes.csv",
-    params: min_sample_frac = 0.6
+    params: min_sample_frac = 1
     conda: 'envs/tidyverse.yml'
     resources:
         mem_mb = 4000,
@@ -434,7 +435,7 @@ rule diginorm_spacegraphcats_query_genomes:
     threads: 1
     conda: "envs/spacegraphcats.yml"
     shell:'''
-    zcat {input.reads} | normalize-by-median.py -k 20 -C 20 -M 164e9 --gzip -o {output} -
+    cat {input.reads} | zcat | normalize-by-median.py -k 20 -C 20 -M 164e9 --gzip -o {output} -
     '''
 
 rule hardtrim_spacegraphcats_query_genomes:
@@ -479,7 +480,7 @@ rule metapangeome_spacegraphcats_build:
         time_min = 1440
     threads: 1
     conda: "envs/spacegraphcats.yml"
-    params: outdir = "outputs/sgc_pangenome_catlases"
+    params: outdir = "outputs/metapangenome_sgc_catlases"
     shell:'''
     python -m spacegraphcats build {input.conf} --outdir={params.outdir} --rerun-incomplete --nolock
     '''

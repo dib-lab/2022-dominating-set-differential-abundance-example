@@ -68,7 +68,7 @@ fit_corncob <- function(col_num) {
   # run corncob with LRT
   corncob_out <- df %>%
     select(num_kmers, var, all_of(col_num)) %>%
-    rename(ww = 4) %>%
+    rename(ww = 3) %>%
     corncob::bbdml(formula = cbind(ww, num_kmers - ww) ~ var,
                    #formula_null = cbind(ww, num_kmers - ww) ~ variable, # use this to block if you have additional variables
                    phi.formula = ~ 1,
@@ -91,8 +91,8 @@ fit_corncob <- function(col_num) {
   return(corncob_coeff)
 }
 
-# run function on all AAs
-all_ccs <- sapply(5:ncol(df), fit_corncob, simplify=F)
+# run function on all domset pieces
+all_ccs <- sapply(4:ncol(df), fit_corncob, simplify=F)
 all_ccs <- do.call(rbind, all_ccs)
 write_tsv(all_ccs, path = snakemake@output[["all_ccs"]])
 

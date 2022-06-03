@@ -405,18 +405,13 @@ checkpoint mgx_spacegraphcats_query_genomes_extract_reads:
     '''
 
 def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1(wildcards):
-    # Expand checkpoint to get query genome accs, which will be used as queries for spacegraphcats extract
-    # checkpoint_output encodes the output dir from the checkpoint rule.
     checkpoint_output = checkpoints.mgx_spacegraphcats_query_genomes_extract_reads.get(**wildcards).output[0]
-    #file_names = expand("outputs/mgx_sgc_genome_queries_hardtrim/{acc}.fa.gz",
     file_names = expand("outputs/mgx_sgc_genome_queries/{{sample}}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz",
-                        #sample = wildcards.SAMPLES,
                         acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz")).acc)
     return file_names
 
 rule dummy_solve_sgc:
     input: checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1 # solve the SAMPLES/ACC wildcards from the checkpoint.
-    #output: touch("outputs/mgx_spacegraphcats_query_genomes_extract_reads_{sample}_done.txt")
     output: touch("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz") 
 
 ##########################################################
@@ -425,8 +420,6 @@ rule dummy_solve_sgc:
 
 rule diginorm_spacegraphcats_query_genomes:
     input:
-        #reads = checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1, # solve the SAMPLES/ACC wildcards from the checkpoint.
-        #dummy = expand("outputs/mgx_spacegraphcats_query_genomes_extract_reads_{sample}_done.txt", sample = SAMPLES),
         reads = expand("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{{acc}}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz", sample = SAMPLES) # recreate ACC wildcard using Checkpoint_GrabAccessions to solve at end of workflow.
     output: "outputs/mgx_sgc_genome_queries_diginorm/{acc}.diginorm.fa.gz"
     resources:
@@ -574,15 +567,6 @@ rule corncob_for_dominating_set_differential_abund:
     threads: 1
     conda: 'envs/corncob.yml'
     script: "scripts/corncob_dda.R"
-
-
-#def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_2(wildcards):
-#    # Expand checkpoint to get query genome accs, which will be used as queries for spacegraphcats extract
-#    # checkpoint_output encodes the output dir from the checkpoint rule.
-#    checkpoint_output = checkpoints.mgx_spacegraphcats_query_genomes_extract_reads.get(**wildcards).output[0]
-#    file_names = expand("outputs/metapangenome_sgc_catlases_corncob/{acc}_sig_ccs.tsv",
-#                        acc = glob_wildcards(os.path.join(checkpoint_output, "{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz")).acc)
-#    return file_names
 
 
 #######################################################################

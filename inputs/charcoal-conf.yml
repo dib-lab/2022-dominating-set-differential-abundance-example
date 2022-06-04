@@ -1,0 +1,27 @@
+# location for all generated files
+output_dir: outputs/query_genomes_charcoal/
+
+# list of genome filenames to decontaminate
+genome_list: outputs/charcoal_conf/charcoal.genome-list.txt
+
+# directory in which genome filenames live
+genome_dir: outputs/query_genomes
+
+# (optional) list of lineages for input genomes. comment out or leave
+# blank if none.
+provided_lineages: outputs/query_genomes_from_sourmash_gather/query_genomes.csv
+
+# match_rank is the rank _above_ which cross-lineage matches are considered
+# contamination. e.g. if set to 'superkingdom', then Archaeal matches in
+# Bacterial genomes will be contamination, but nothing else.
+#
+# values can be superkingdom, phylum, class, order, family, or genus.
+match_rank: order
+
+# sourmash query databases for contamination (SBTs, LCAs, or signatures)
+gather_db:
+ - inputs/gtdb-rs207.genomic-reps.dna.k31.zip 
+
+# lineages CSV (see `sourmash lca index`) for signatures in query databases
+lineages_csv: inputs/gtdb-rs207.taxonomy.csv 
+strict: 1

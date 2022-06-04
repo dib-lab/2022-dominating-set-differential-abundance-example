@@ -9,6 +9,7 @@ It generates a taxonomic profiles for each metagenome, and selects the species t
 Abreviations:
 + **dda**: dominating set differential abundance
 + **CD**: Crohn's disease
++ **ccs**: corncobs; refers to the output of the differential abundance testing software corncob.
 
 ## Running the example workflow
 
@@ -58,8 +59,18 @@ You'll need to update information about the partition to match your cluster.
 snakemake -j 16 --use-conda --rerun-incomplete --latency-wait 15 --resources mem_mb=200000 --cluster "sbatch -t {resources.time_min} -J dda -p bmm -n 1 -N 1 -c {threads} --mem={resources.mem_mb}" -k
 ```
 
+The test data is fairly small, but the workflow still takes ~half a day to run from start to finish.
+
+
 ## Setting up the workflow to run with your data
 
+
+## Interpretting the output files from the workflow
+
+The final set of results is currently written to the folder `outputs/metapangenome_sgc_catlases_corncob`. 
+There are two files, `*all_ccs.tsv` and `*_sig_ccs.tsv`.   
+These files record all results from the differential abundance analysis (`*all_ccs.tsv`) and results that are significant after bonferonni p value correction (`*_sig_ccs.tsv`). 
+Note that the test data does not produce significant results, so these files are blank other than the column names.
 
 ## Changes to the workflow you may want to make when running on your data
 
@@ -68,3 +79,10 @@ snakemake -j 16 --use-conda --rerun-incomplete --latency-wait 15 --resources mem
 
 This workflow is currently missing the annotation portion.
 This arm of the workflow will be added soon, and it will be based upon [this snakefile](https://github.com/dib-lab/2020-ibd/blob/master/annotate_metapangenome_species_graphs.snakefile).
+
+I plan to provide more complete documentation in the future as well.
+In the meantime, many of the rules in Snakefile have docstrings that explain what the rules do, possible implementation trade offs, etc.
+
+I also plan to add benchmarking directives to each rule to automatically capture the RAM, CPU, and run time for each step in the workflow.
+
+@taylorreiter 06/2022

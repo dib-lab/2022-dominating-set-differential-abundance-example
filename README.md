@@ -91,6 +91,7 @@ phi.(Intercept) -7.526117770129453      0.6342089717889471      -11.866936774640
 This workflow has _not_ yet been adapted to make re-running it on new data easy, but it is doable with a few changes.
 
 1. **Updating the workflow to run on your own data**: To run the workflow on your own data, you'll need to make a few changes. 
+    
     a. First, you'll need a new `inputs/metadata.csv` file. This file looks like this:
     ```
     sample,var
@@ -106,14 +107,16 @@ This workflow has _not_ yet been adapted to make re-running it on new data easy,
     It's a csv file with the columns `sample` and `var`.
     The `sample` column records the basename of your sample, minus the suffix `_R*.fq.gz`.
     The `var` column records the two-level variable that will be compared between samples. 
+    
     b. Next, you'll need to place your own paired-end fastq files in the `inputs/mgx_raw` folder. 
     The files must be named with the same sample basename as is indicated in `inputs/metadata.csv` and must end with `_R*.fq.gz`.
+    
     c. Lastly, line 54 of `scripts/corncob_dda.R` needs to be updated.
     This line encodes the levels of the `var` that will be compared, and these should exactly match the two names in `inputs/metadata.csv` in the `var` column.
     The base `var` (e.g. controls) should come first.
 2. **Updating the workflow to run a more complex model**: The only files that needs to be changed to enable a more complex model design are `scripts/corncob_dda.R` and `inputs/metadata.csv`. The metadata file should include all variables that you would like to include in your model, with each encoded as a new column. The `scripts/corncob_dda.R` file will need more substantial changes. We plan to add more documentation on this later, but in the meantime for inspiration, see [here](https://github.com/dib-lab/2020-ibd/blob/master/scripts/corncob_dda.R).
 
-Note we have not tested these suggested changes for adapting to new data...buy beware! 
+Note we have not tested these suggested changes for adapting to new data...buyer beware! 
 We think this is everything that is needed, but may have missed something.
 
 ## Future work

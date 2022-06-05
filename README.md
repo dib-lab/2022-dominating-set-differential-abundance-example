@@ -61,8 +61,6 @@ snakemake -j 16 --use-conda --rerun-incomplete --latency-wait 15 --resources mem
 
 The test data is fairly small, but the workflow still takes ~half a day to run from start to finish.
 
-## Setting up the workflow to run with your data
-
 
 ## Interpretting the output files from the workflow
 

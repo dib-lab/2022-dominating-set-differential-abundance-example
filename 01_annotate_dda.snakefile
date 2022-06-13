@@ -1,9 +1,11 @@
-impmrt csv
+import csv
+import re
 import pandas as pd
 
 query_genomes = pd.read_csv("outputs/query_genomes_from_sourmash_gather/query_genomes.csv", header = 0)
 GTDB_SPECIES = query_genomes['species'].tolist()
-ACC = query_genomes['accessions'].tolist()
+GTDB_SPECIES = [re.sub(' ', '_', i) for i in GTDB_SPECIES]
+ACC = query_genomes['accession'].tolist()
 
 # make a variable that binds GTDB species to the accession that the queries were seeded with;
 # catlases are named after the accession, so these need to be bound so that each catlas is only annotated by the correct species
@@ -46,7 +48,7 @@ class Checkpoint_GrabAnnotationAccessions:
     def __call__(self, w):
         global checkpoints
 
-        # wait for the results of rule 'grab_species_accessions';
+        # wait for the results of rule 'grab_annotation_genome_accessions';
         # this will trigger exception until that rule has been run.
         checkpoints.grab_annotation_genome_accessions.get(**w)
 
@@ -57,8 +59,7 @@ class Checkpoint_GrabAnnotationAccessions:
         return p
 
 rule all:
-    input:
-
+    input: expand("outputs/metapangenome_sgc_catlases_corncob_annotations/{acc_species}_sig_ccs_annotated_no_cdbg.tsv", acc_species = ACC_SPECIES)
 
 checkpoint grab_annotation_genome_accessions:
     input:
@@ -226,6 +227,10 @@ rule sketch_metapangenome_reference:
     sourmash sketch dna -p k=31,scaled=1000,abund -o {output} {input}
     '''
 
+# TODO: REPLACE THIS WITH AN EXPAND OVER GTDB_SPECIES.
+# Make a python script that reads in the query_genomes files to keep acc:gtdb species pairing, 
+# and outputs all conf files in one run of the rule. 
+# will make it so the dag solves correctly for the annotation bits.
 rule make_metapangenome_sgc_multifasta_conf_files:
     input:
         reads = "outputs/mgx_sgc_genome_queries_hardtrim/{acc}.hardtrim.fa.gz",
@@ -258,9 +263,9 @@ rule spacegraphcats_pangenome_catlas_multifasta_annotate:
     output:
         # the commented files are output by sgc, but since they don't have gtdb_species in their path name, 
         # I don't think they can be included as output files...use a dummy file instead?
-        #annot="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_multifasta/multifasta.cdbg_annot.csv",
-        #record="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_multifasta/multifasta.cdbg_by_record.csv",
-        touch = "outputs/metapangenome_sgc_catlases/{acc}--{gtdb_species}_done.txt"
+        annot="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_multifasta/multifasta.cdbg_annot.csv",
+        record="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_multifasta/multifasta.cdbg_by_record.csv",
+        touch_tmp = "outputs/metapangenome_sgc_catlases/{acc}--{gtdb_species}_done.txt"
     params:
         outdir = "outputs/metapangenome_sgc_catlases/",
     conda: "envs/spacegraphcats.yml"
@@ -270,13 +275,13 @@ rule spacegraphcats_pangenome_catlas_multifasta_annotate:
     threads: 1
     shell:'''
     python -m spacegraphcats run {input.conf} multifasta_query --nolock --outdir {params.outdir} --rerun-incomplete
-    touch {output.touch}
+    touch {output.touch_tmp}
     '''
 
 rule join_annotations_to_dominating_set_differential_abundance_analysis_results:
     input:
         cdbg_to_pieces="outputs/metapangenome_sgc_catlases/{acc}_k31_r10/cdbg_to_pieces.csv",
-        eggnog = "outputs/gtdb_genomes_annotated_comb_eggnog/{gtdb_species}/{gtdb_species}.emapper.annotations",
+        eggnog = "outputs/annotation_genomes_annotated_clustered_eggnog/{gtdb_species}/{gtdb_species}.emapper.annotations", 
         cdbg_annot = "outputs/metapangenome_sgc_catlases/{acc}_k31_r10_multifasta/multifasta.cdbg_annot.csv",
         sig_ccs = "outputs/metapangenome_sgc_catlases_corncob/{acc}_sig_ccs.tsv",
         dom_info = "outputs/metapangenome_sgc_catlases/{acc}_k31_r10_abund/dom_info.tsv"

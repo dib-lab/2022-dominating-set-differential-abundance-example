@@ -47,6 +47,31 @@ cd ..
 snakemake -n
 ```
 
+The dry run should produce an output that looks like the one shown below.
+It details all of the rules that need to be run, the number of times each rule will be run, and the threads that will be allocated to each run.
+The rules are listed in alphabetical order, not in order of execution.
+Given the way the workflow is written, only a subset of rules are shown in the dry run until `mgx_select_query_genomes_shared_across_samples` is finished running.
+The results of this rule are used to re-solve the directed acyclic graph (DAG) and re-determine which rules need to be run and how  many times they need to be run.
+
+```
+Building DAG of jobs...
+Job stats:
+job                                               count    min threads    max threads
+----------------------------------------------  -------  -------------  -------------
+all                                                   1              1              1
+download_human_host_db                                1              1              1
+download_sourmash_gather_database                     1              1              1
+download_sourmash_gather_database_lineages            1              1              1
+gunzip_sourmash_gather_database_lineages              1              1              1
+mgx_fastp_reads                                       8              1              1
+mgx_kmer_trim_reads                                   8              1              1
+mgx_remove_host_reads                                 8              1              1
+mgx_select_query_genomes_shared_across_samples        1              1              1
+mgx_sourmash_gather                                   8              1              1
+mgx_sourmash_sketch                                   8              1              1
+total                                                46              1              1
+```
+
 To run the workflow, you can use:
 ```
 snakemake --use-conda --rerun-incomplete -j 1
@@ -126,5 +151,39 @@ I plan to provide more complete documentation in the future as well.
 In the meantime, many of the rules in Snakefile have docstrings that explain what the rules do, possible implementation trade offs, etc.
 
 I also plan to add benchmarking directives to each rule to automatically capture the RAM, CPU, and run time for each step in the workflow.
+
+## Common problems when running the workflow
+
+Most issues that pop up when running this workflow are either related to snakemake or conda.
+We've documented a few common ones below -- thanks to @ccbaumler for alpha testing the workflow and documenting these problems!
+
+### Issues related to conda software management
+
+1. **Conda installation is not configured to use strict channel priorities:**
+
+```
+$ snakemake --use-conda --rerun-incomplete -j 1
+
+Building DAG of jobs...
+CreateCondaEnvironmentException:
+Your conda installation is not configured to use strict channel priorities. This is however crucial for having robust and correct environments (for details, see https://conda-forge.org/docs/user/tipsandtricks.html). Please configure strict priorities by executing 'conda config --set channel_priority strict'.
+```
+This error is fixed by configuring strict priorities in conda:
+```
+conda config --set channel_priority strict
+```
+
+### Issues related to snakemake execution of the workflow
+
+1. **Missing files after 5 seconds.** 
+```
+OSError: Missing files after 5 seconds. This might be due to filesystem latency. If that is the case, consider to increase the wait time with --latency-wait:
+outputs/mgx_sgc_genome_queries/p8775mo1_k31_r1_search_oh0/GCF_008121495.1_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz
+```
+This problem occurs when a rule successfully finishes running, but because of file system latency, the file isn't visible to snakemake within the time period it expects to see it.
+This can occur with any file output by the workflow, not just the file shown above.
+The error can essentially be ignored, and the workflow restarted.
+To prevent the error in the future, you can use the flag `--latency-wait` to increase the wait time. 
+I've had some success with `--latency-wait 15` (15 seconds), but even that isn't always sufficient and you may need to restart the workflow even with this parameter included.
 
 @taylorreiter 06/2022

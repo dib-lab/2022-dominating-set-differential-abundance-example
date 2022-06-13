@@ -248,7 +248,7 @@ checkpoint mgx_select_query_genomes_shared_across_samples:
     script: "scripts/mgx_select_query_genomes_shared_across_samples.R"
     
 ################################################################
-##
+## PREP QUERY GENOMES AND QUERY ASSEMBLY GRAPHS
 ################################################################
 
 rule make_query_genome_info_csv:

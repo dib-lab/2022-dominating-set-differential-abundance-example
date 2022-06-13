@@ -160,7 +160,6 @@ We've documented a few common ones below -- thanks to @ccbaumler for alpha testi
 ### Issues related to conda software management
 
 1. **Conda installation is not configured to use strict channel priorities:**
-
 ```
 $ snakemake --use-conda --rerun-incomplete -j 1
 

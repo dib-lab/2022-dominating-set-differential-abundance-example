@@ -217,7 +217,7 @@ rule eggnog_annotate_clustered_sequences:
 
 rule sketch_metapangenome_reference:
     input: "outputs/annotation_genomes_annotated_clustered/{gtdb_species}_clustered_annotated_seqs.fa",
-    output: "outputs/annotation_genomess_annotated_clustered_sigs/{gtdb_species}_clustered_annotated_seqs.sig"
+    output: "outputs/annotation_genomes_annotated_clustered_sigs/{gtdb_species}_clustered_annotated_seqs.sig"
     resources:
         mem_mb = 500,
         time_min = 60
@@ -227,45 +227,47 @@ rule sketch_metapangenome_reference:
     sourmash sketch dna -p k=31,scaled=1000,abund -o {output} {input}
     '''
 
-# TODO: REPLACE THIS WITH AN EXPAND OVER GTDB_SPECIES.
-# Make a python script that reads in the query_genomes files to keep acc:gtdb species pairing, 
-# and outputs all conf files in one run of the rule. 
-# will make it so the dag solves correctly for the annotation bits.
 rule make_metapangenome_sgc_multifasta_conf_files:
     input:
         reads = "outputs/mgx_sgc_genome_queries_hardtrim/{acc}.hardtrim.fa.gz",
-        ref_genes = "outputs/annotation_genomes_annotated_clustered/{gtdb_species}_clustered_annotated_seqs.fa",
-        ref_sig = "outputs/annotation_genomes_annotated_clustered_sigs/{gtdb_species}_clustered_annotated_seqs.sig"
+        ref_genes = expand("outputs/annotation_genomes_annotated_clustered/{gtdb_species}_clustered_annotated_seqs.fa", gtdb_species = GTDB_SPECIES),
+        ref_sig = expand("outputs/annotation_genomes_annotated_clustered_sigs/{gtdb_species}_clustered_annotated_seqs.sig", gtdb_species = GTDB_SPECIES)
     output:
-        conf = "outputs/sgc_conf/{acc}--{gtdb_species}_r10_multifasta_conf.yml"
+        conf = "outputs/sgc_conf/{acc}_r10_multifasta_conf.yml"
     resources:
         mem_mb = 500
     threads: 1
     run:
-        with open(output.conf, 'wt') as fp:
-           print(f"""\
+        row = query_genomes.loc[query_genomes['accession'] == wildcards.acc]
+        gtdb_species_tmp = row['species'].values[0]
+        gtdb_species = re.sub(" ", "_", gtdb_species_tmp)
+        for gtdb_species_wc in wildcards.gtdb_species:
+            if gtdb_species == gtdb_species_wc:
+                reads = "outputs/mgx_sgc_genome_queries_hardtrim/" + wildcards.acc + ".hardtrim.fa.gz"
+                ref_genes = "outputs/annotation_genomes_annotated_clustered/" + gtdb_species + "_clustered_annotated_seqs.fa"
+                ref_sig =  "outputs/annotation_genomes_annotated_clustered_sigs/" + gtdb_species + "_clustered_annotated_seqs.sig"
+                with open(output.conf, 'wt') as fp:
+                    print(f"""\
 catlas_base: {wildcards.acc}
 input_sequences:
-- {input.reads}
+- {reads}
 radius: 10
 paired_reads: true
 multifasta_reference:
-- {input.ref_genes}
+- {ref_genes}
 multifasta_scaled: 1000
-multifasta_query_sig: {input.ref_sig}
+multifasta_query_sig: {ref_sig}
 """, file=fp)
 
+
 ## ADD A RULE THAT TOUCHES THE EXISTING CATLAS FIRST??
-rule spacegraphcats_pangenome_catlas_multifasta_annotate:
+rule spacegraphcats_metapangenome_catlas_multifasta_annotate:
     input:
-        conf = "outputs/sgc_conf/{acc}--{gtdb_species}_r10_multifasta_conf.yml",
+        conf = "outputs/sgc_conf/{acc}_r10_multifasta_conf.yml",
         catlas = "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/catlas.csv"
     output:
-        # the commented files are output by sgc, but since they don't have gtdb_species in their path name, 
-        # I don't think they can be included as output files...use a dummy file instead?
         annot="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_multifasta/multifasta.cdbg_annot.csv",
         record="outputs/metapangenome_sgc_catlases/{acc}_k31_r10_multifasta/multifasta.cdbg_by_record.csv",
-        touch_tmp = "outputs/metapangenome_sgc_catlases/{acc}--{gtdb_species}_done.txt"
     params:
         outdir = "outputs/metapangenome_sgc_catlases/",
     conda: "envs/spacegraphcats.yml"
@@ -275,7 +277,23 @@ rule spacegraphcats_pangenome_catlas_multifasta_annotate:
     threads: 1
     shell:'''
     python -m spacegraphcats run {input.conf} multifasta_query --nolock --outdir {params.outdir} --rerun-incomplete
-    touch {output.touch_tmp}
+    '''
+
+rule spacegraphcats_metapangenome_catlas_cdbg_to_pieces_map:
+    input:
+        cdbg = "outputs/metapangenome_sgc_catlases/{acc}_k31/cdbg.gxt",
+        catlas = "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/catlas.csv"
+    output: "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/cdbg_to_pieces.csv"
+    conda: "envs/spacegraphcats.yml"
+    resources: 
+        mem_mb = 16000,
+        time_min = 440
+    threads: 1
+    params:
+        cdbg_dir = lambda wildcards: "outputs/metapangenome_sgc_catlases/" + wildcards.acc + "_k31" ,
+        catlas_dir = lambda wildcards: "outputs/metapangenome_sgc_catlases/" + wildcards.acc + "_k31_r10", 
+    shell:'''
+    scripts/cdbg_to_pieces.py {params.cdbg_dir} {params.catlas_dir}
     '''
 
 rule join_annotations_to_dominating_set_differential_abundance_analysis_results:

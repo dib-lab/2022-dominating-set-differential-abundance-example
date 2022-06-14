@@ -13,6 +13,7 @@ Abreviations:
 
 ## Running the example workflow
 
+### Installation & setup
 This is a snakemake workflow that uses conda to manage software installations.
 
 You will need `conda` to be installed in order to run this workflow.
@@ -41,10 +42,21 @@ cd inputs
 tar xf mgx_raw.tar.gz
 ```
 
-`cd` back into the main folder of the repo and try a dry run of the workflow:
+`cd` back into the main folder of the repo, where we will run the actual workflow.
+
 ```
 cd ..
-snakemake -n
+```
+
+### Running the workflow
+
+The workflow is written in two parts, `00_perform_dda.snakefile` and `01_annotate_dda.snakefile`. 
+`00_perform_dda.snakefile` needs to be run and completed before `01_annotate_dda.snakefile` is run.
+
+Start by trying a dry run of the first part of the workflow:
+
+```
+snakemake -s 00_perform_dda.snakefile -n
 ```
 
 The dry run should produce an output that looks like the one shown below.
@@ -74,18 +86,40 @@ total                                                46              1          
 
 To run the workflow, you can use:
 ```
-snakemake --use-conda --rerun-incomplete -j 1
+snakemake -s 00_perform_dda.snakefile --use-conda --rerun-incomplete -j 1
 ```
+
+When this snakefile is finished running, you can then run the next snakefile:
+```
+snakemake -s 01_annotate_dda.snakefile --use-conda --rerun-incomplete -j 1
+```
+
+The test data is fairly small, but the workflow still takes ~half a day to run from start to finish.
+
+### Running the workflow on a cluster
 
 If you're working on a cluster like slurm, you can use the following command to submit each rule as a job.
 You'll need to update information about the partition to match your cluster.
 
 ```
-snakemake -j 16 --use-conda --rerun-incomplete --latency-wait 15 --resources mem_mb=200000 --cluster "sbatch -t {resources.time_min} -J dda -p bmm -n 1 -N 1 -c {threads} --mem={resources.mem_mb}" -k
+snakemake -s 00_perform_dda.snakefile -j 16 --use-conda --rerun-incomplete --latency-wait 15 --resources mem_mb=200000 --cluster "sbatch -t {resources.time_min} -J dda -p bmm -n 1 -N 1 -c {threads} --mem={resources.mem_mb}" -k
 ```
 
-The test data is fairly small, but the workflow still takes ~half a day to run from start to finish.
+## Overview of the steps in the workflow
 
+The workflow is written in two parts. 
+
+`00_perform_dda.snakefile`:
++ preprocesses the raw metagenome sequencing reads
++ determines the taxonomic composition of each metagenome
++ selects species on which to perform differential abundance analysis using species that are detected in all samples (threshold can be decreased by the user). These are referred to as _query genomes_.
++ recovers all of the sequencing reads/variation attributable to the query genomes within each metagenome
++ builds a _metapangenome graph_ that represents all of the variation observed across all metagenomes for a given species
++ performs dominating set differential abundance analysis to identify the sequences that are more or less abundant in one group of metagenomes when compared to another.
+
+`01_annotate_dda.snakefile`:
++ annotates the metapangenome graph using matches to genes in GTDB (rs207) genomes of the same species
++ joins annotations to the differentially abundant sequences.
 
 ## Interpretting the output files from the workflow
 
@@ -144,11 +178,8 @@ We think this is everything that is needed, but may have missed something.
 
 ## Future work
 
-This workflow is currently missing the annotation portion.
-This arm of the workflow will be added soon, and it will be based upon [this snakefile](https://github.com/dib-lab/2020-ibd/blob/master/annotate_metapangenome_species_graphs.snakefile).
-
-I plan to provide more complete documentation in the future as well.
-In the meantime, many of the rules in Snakefile have docstrings that explain what the rules do, possible implementation trade offs, etc.
+I plan to provide more complete documentation in the future.
+In the meantime, many of the rules in snakefiles have docstrings that explain what the rules do, possible implementation trade offs, etc.
 
 I also plan to add benchmarking directives to each rule to automatically capture the RAM, CPU, and run time for each step in the workflow.
 

@@ -4,12 +4,13 @@ Dominating set differential abundance analysis allows you to perform differentia
 This approach was developed in the repository [dib-lab/2020-ibd](https://github.com/dib-lab/2020-ibd) and is explained in [taylorreiter/2021-paper-ibd](https://github.com/taylorreiter/2021-paper-ibd).
 
 This workflow takes as input raw metagenome sequences from two groups of metagenomes (e.g. case vs. control). 
-It generates a taxonomic profiles for each metagenome, and selects the species that are present in some threshold of metagenomes (by default, 100%) for dominating set differential abundance analysis.
+It generates a taxonomic profile for each metagenome, and selects the species that are present in some threshold of metagenomes (by default, 100%) for dominating set differential abundance analysis.
 
-Abreviations:
+Abbreviations:
 + **dda**: dominating set differential abundance
 + **CD**: Crohn's disease
-+ **ccs**: corncobs; refers to the output of the differential abundance testing software corncob.
++ **ccs**: corncobs; refers to the output of the differential abundance testing software [corncob](https://github.com/bryandmartin/corncob).
++ **GTDB**: [Genome taxonomy database](https://gtdb.ecogenomic.org/)
 
 ## Running the example workflow
 
@@ -19,7 +20,7 @@ This is a snakemake workflow that uses conda to manage software installations.
 You will need `conda` to be installed in order to run this workflow.
 You can find operating system-specific instructions for installing miniconda [here](https://docs.conda.io/en/latest/miniconda.html).
 
-First, clone the repository to your machine.
+After installing conda, clone the repository to your machine.
 
 ```
 git clone https://github.com/taylorreiter/2022-dominating-set-differential-abundance-example.git
@@ -62,7 +63,7 @@ snakemake -s 00_perform_dda.snakefile -n
 The dry run should produce an output that looks like the one shown below.
 It details all of the rules that need to be run, the number of times each rule will be run, and the threads that will be allocated to each run.
 The rules are listed in alphabetical order, not in order of execution.
-Given the way the workflow is written, only a subset of rules are shown in the dry run until `mgx_select_query_genomes_shared_across_samples` is finished running.
+Given the way the workflow is written, only a subset of rules are shown in the dry run until the rule `mgx_select_query_genomes_shared_across_samples` is finished running.
 The results of this rule are used to re-solve the directed acyclic graph (DAG) and re-determine which rules need to be run and how  many times they need to be run.
 
 ```
@@ -98,7 +99,7 @@ The test data is fairly small, but the workflow still takes ~half a day to run f
 
 ### Running the workflow on a cluster
 
-If you're working on a cluster like slurm, you can use the following command to submit each rule as a job.
+If you're working on a cluster/remote computer with a job scheduler (e.g. slurm), you can use the following command to submit each rule as a job.
 You'll need to update information about the partition to match your cluster.
 
 ```
@@ -107,25 +108,27 @@ snakemake -s 00_perform_dda.snakefile -j 16 --use-conda --rerun-incomplete --lat
 
 ## Overview of the steps in the workflow
 
-The workflow is written in two parts. 
+The workflow is written in two parts.
+The first snakefile performs the differential abundance analysis, while the second snakefile annotates the results with gene and ortholog names.
+Below, we provide a more detailed overview of the steps encoded by each workflow.
 
 `00_perform_dda.snakefile`:
-+ preprocesses the raw metagenome sequencing reads
-+ determines the taxonomic composition of each metagenome
-+ selects species on which to perform differential abundance analysis using species that are detected in all samples (threshold can be decreased by the user). These are referred to as _query genomes_.
-+ recovers all of the sequencing reads/variation attributable to the query genomes within each metagenome
-+ builds a _metapangenome graph_ that represents all of the variation observed across all metagenomes for a given species
-+ performs dominating set differential abundance analysis to identify the sequences that are more or less abundant in one group of metagenomes when compared to another.
++ preprocesses the raw metagenome sequencing reads.
++ determines the taxonomic composition of each metagenome.
++ selects species on which to perform differential abundance analysis using species that are detected in 100% of samples (threshold can be decreased by the user). For each selected species, the GTDB representative genome becomes the _query genome_.
++ recovers all of the sequencing reads/variation (neighborhoods) attributable to the query genomes within each metagenome.
++ combines the genome query neighborhoods to build a _metapangenome graph_ that represents all of the variation observed across all metagenomes for a given species.
++ performs dominating set differential abundance analysis on the metapangenome graph to identify the sequences (dominating set pieces) that are more or less abundant in one group of metagenomes when compared to another.
 
 `01_annotate_dda.snakefile`:
-+ annotates the metapangenome graph using matches to genes in GTDB (rs207) genomes of the same species
++ annotates the metapangenome graph using matches to genes in GTDB (rs207) genomes of the same species as the query genome.
 + joins annotations to the differentially abundant sequences.
 
 ## Interpretting the output files from the workflow
 
 The final set of results is currently written to the folder `outputs/metapangenome_sgc_catlases_corncob`. 
 There are two files, `*all_ccs.tsv` and `*_sig_ccs.tsv`.   
-These files record all results from the differential abundance analysis (`*all_ccs.tsv`) and results that are significant after Bonferroni p value correction (`*_sig_ccs.tsv`). 
+The first file records all results from the differential abundance analysis (`*all_ccs.tsv`) and while the second records results that are significant after Bonferroni p value correction (`*_sig_ccs.tsv`). 
 Note that the test data does not produce significant results, so these files are blank other than the column names.
 
 The top of `*_all_ccs.tsv` looks like this:
@@ -171,10 +174,11 @@ This workflow has _not_ yet been adapted to make re-running it on new data easy,
     c. Lastly, line 54 of `scripts/corncob_dda.R` needs to be updated.
     This line encodes the levels of the `var` that will be compared, and these should exactly match the two names in `inputs/metadata.csv` in the `var` column.
     The base `var` (e.g. controls) should come first.
-2. **Updating the workflow to run a more complex model**: The only files that needs to be changed to enable a more complex model design are `scripts/corncob_dda.R` and `inputs/metadata.csv`. The metadata file should include all variables that you would like to include in your model, with each encoded as a new column. The `scripts/corncob_dda.R` file will need more substantial changes. We plan to add more documentation on this later, but in the meantime for inspiration, see [here](https://github.com/dib-lab/2020-ibd/blob/master/scripts/corncob_dda.R).
+2. **Updating the workflow to run a more complex model**: The files that need to be changed to enable a more complex model design are `scripts/corncob_dda.R` and `inputs/metadata.csv`. The metadata file should include all variables that you would like to include in your model, with each encoded as a new column. The `scripts/corncob_dda.R` file will need more substantial changes. We plan to add more documentation on this later, but in the meantime for inspiration, see [here](https://github.com/dib-lab/2020-ibd/blob/master/scripts/corncob_dda.R).
 
 Note we have not tested these suggested changes for adapting to new data...buyer beware! 
 We think this is everything that is needed, but may have missed something.
+Please file an issue if you find something to be amiss.
 
 ## Future work
 

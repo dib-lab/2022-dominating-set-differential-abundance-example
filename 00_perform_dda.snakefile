@@ -390,6 +390,7 @@ rule mgx_spacegraphcats_build_catlas:
 
 checkpoint mgx_spacegraphcats_query_genomes_extract_reads:
     input: 
+        catlas="outputs/mgx_sgc_genome_queries/{sample}_k31_r10/catlas.csv",
         conf = ancient("outputs/sgc_conf/{sample}_k31_r1_conf.yml"),
         reads = "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
     output: directory("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/")  # re-creates the {acc} wildcard using sgc outputs
@@ -411,7 +412,7 @@ def checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1(wildcards):
     return file_names
 
 rule dummy_solve_sgc:
-    input: checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1 # solve the SAMPLES/ACC wildcards from the checkpoint.
+    input: ancient(checkpoint_mgx_spacegraphcats_query_genomes_extract_reads_1) # solve the SAMPLES/ACC wildcards from the checkpoint.
     output: touch("outputs/mgx_sgc_genome_queries/{sample}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz") 
 
 ##########################################################
@@ -466,7 +467,7 @@ rule metapangeome_spacegraphcats_build:
     input: conf = "outputs/sgc_conf/{acc}_r10_conf.yml"
     output: 
         "outputs/metapangenome_sgc_catlases/{acc}_k31/cdbg.gxt",
-        "outputs/metapangenome_sgc_catlases/{acc}_k31/bcalm.unitigs.db",
+        #"outputs/metapangenome_sgc_catlases/{acc}_k31/bcalm.unitigs.db",
         "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/catlas.csv"
     resources: 
         mem_mb = 300000,

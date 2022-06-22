@@ -29,7 +29,7 @@ rule make_query_genome_info_csv:
     """
 
 rule download_query_genome:
-    input: csvfile = ancient('outputs/query_genomes/{acc}.info.csv')
+    input: csvfile = 'outputs/query_genomes/{acc}.info.csv'
     output: genome = "outputs/query_genomes/{acc}_genomic.fna.gz"
     resources:
         mem_mb = 500,
@@ -56,7 +56,7 @@ rule download_query_genome:
 
 
 rule generate_charcoal_genome_list:
-    input:  ancient(Checkpoint_GrabAccessions("outputs/query_genomes/{acc}_genomic.fna.gz"))
+    input:  expand("outputs/query_genomes/{acc}_genomic.fna.gz", acc = ACC)
     output: "outputs/charcoal_conf/charcoal.genome-list.txt"
     threads: 1
     resources:
@@ -72,7 +72,7 @@ rule query_genomes_charcoal_decontaminate:
     Charcoal decontaminates the query genomes prior to running the assembly graph queries.
     """
     input:
-        genomes = ancient(expand("outputs/query_genomes/{acc}_genomic.fna.gz", acc = ACC)), 
+        genomes = expand("outputs/query_genomes/{acc}_genomic.fna.gz", acc = ACC), 
         genome_list = "outputs/charcoal_conf/charcoal.genome-list.txt",
         conf = "inputs/charcoal-conf.yml",
         genome_lineages="outputs/query_genomes_from_sourmash_gather/query_genomes.csv",
@@ -128,7 +128,7 @@ rule mgx_spacegraphcats_query_genomes_extract_reads:
     soil microbiome: ?
     """
     input: 
-        conf = ancient("outputs/sgc_conf/{sample}_k31_r1_conf.yml"),
+        conf = "outputs/sgc_conf/{sample}_k31_r1_conf.yml",
         reads = "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz",
         queries = expand("outputs/query_genomes_charcoal/{acc}_genomic.fna.gz.clean.fa.gz", acc = ACC)
     output: expand("outputs/mgx_sgc_genome_queries/{{sample}}_k31_r1_search_oh0/{acc}_genomic.fna.gz.clean.fa.gz.cdbg_ids.reads.gz", acc = ACC)
@@ -194,7 +194,6 @@ rule metapangeome_spacegraphcats_build:
     input: conf = "outputs/sgc_conf/{acc}_r10_conf.yml"
     output: 
         "outputs/metapangenome_sgc_catlases/{acc}_k31/cdbg.gxt",
-        "outputs/metapangenome_sgc_catlases/{acc}_k31/bcalm.unitigs.db",
         "outputs/metapangenome_sgc_catlases/{acc}_k31_r10/catlas.csv"
     resources: 
         mem_mb = 300000,

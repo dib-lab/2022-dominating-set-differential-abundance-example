@@ -7,7 +7,9 @@ m = pd.read_csv("inputs/metadata.csv", header = 0)
 SAMPLES = m['sample'].unique().tolist()
 
 rule all:
-    input: "outputs/query_genomes_from_sourmash_gather/query_genomes.csv",
+    input: 
+        "outputs/query_genomes_from_sourmash_gather/query_genomes.csv",
+        'outputs/mgx_ntcard/all_kmer_count.tsv'
 
 ########################################
 ## PREPROCESSING
@@ -82,8 +84,8 @@ rule mgx_kmer_trim_reads:
     K-mer trimming is an important pre-processing step before building the cDBG, as erroneous k-mers will increase the complexity of the graph.
     """
     input: 
-        ancient('outputs/mgx_bbduk/{sample}_R1.nohost.fq.gz'),
-        ancient('outputs/mgx_bbduk/{sample}_R2.nohost.fq.gz')
+        'outputs/mgx_bbduk/{sample}_R1.nohost.fq.gz',
+        'outputs/mgx_bbduk/{sample}_R2.nohost.fq.gz'
     output: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
     conda: 'envs/spacegraphcats.yml'
     threads: 1
@@ -95,7 +97,7 @@ rule mgx_kmer_trim_reads:
     '''
 
 rule mgx_ntcard_count_kmers_per_sample:
-    input: ancient("outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz")
+    input: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
     output: 
         fstat = "outputs/mgx_ntcard/{sample}.fstat",
         freq = "outputs/mgx_ntcard/{sample}.freq"
@@ -127,7 +129,7 @@ rule mgx_sourmash_sketch:
     """
     Create a FracMinHash sketch of the quality-controlled reads.
     """
-    input: ancient("outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz")
+    input: "outputs/mgx_abundtrim/{sample}.abundtrim.fq.gz"
     output: "outputs/mgx_sourmash_sigs/{sample}.sig"
     threads: 1
     resources:
@@ -177,7 +179,7 @@ rule mgx_sourmash_gather:
     If this step doesn't produce many matches, the database can be substituted for GenBank databases (built March 2022, see: https://sourmash.readthedocs.io/en/latest/databases.html).
     """
     input:
-        sig=ancient("outputs/mgx_sourmash_sigs/{sample}.sig"),
+        sig="outputs/mgx_sourmash_sigs/{sample}.sig",
         db="inputs/gtdb-rs207.genomic-reps.dna.k31.zip",
     output: 
         csv="outputs/mgx_sourmash_gather/{sample}_gather_gtdb-rs202-genomic-reps.csv",

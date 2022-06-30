@@ -113,7 +113,7 @@ rule download_annotation_genome:
                         file=sys.stderr)
 
 rule bakta_download_db:
-    output: "inputs/bakta_db/db/version.json"
+    output: protected("inputs/bakta_db/db/version.json")
     threads: 1
     resources:
         mem_mb = 4000,

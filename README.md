@@ -1,7 +1,7 @@
 # Example snakemake workflow for performing dominating set differential abundance analysis
 
 Dominating set differential abundance analysis allows you to perform differential abundance analysis directly on an assembly graph.
-This approach was developed in the repository [dib-lab/2020-ibd](https://github.com/dib-lab/2020-ibd) and is explained in [taylorreiter/2021-paper-ibd](https://github.com/taylorreiter/2021-paper-ibd).
+This approach was developed in the repository [dib-lab/2020-ibd](https://github.com/dib-lab/2020-ibd) and is explained in [dib-lab/2021-paper-ibd](https://github.com/dib-lab/2021-paper-ibd).
 
 This workflow takes as input raw metagenome sequences from two groups of metagenomes (e.g. case vs. control). 
 It generates a taxonomic profile for each metagenome, and selects the species that are present in some threshold of metagenomes (by default, 100%) for dominating set differential abundance analysis.
@@ -51,20 +51,49 @@ cd ..
 
 ### Running the workflow
 
-The workflow is written in two parts, `00_perform_dda.snakefile` and `01_annotate_dda.snakefile`. 
-`00_perform_dda.snakefile` needs to be run and completed before `01_annotate_dda.snakefile` is run.
+The workflow is written in three parts, `00_select_query_species_for_dda.snakefile`, `01_perform_dda.snakefile` and `02_annotate_dda.snakefile`. 
+`00_select_query_species_for_dda.snakefile` needs to be run and completed before `01_perform_dda.snakefile`, and  `01_perform_dda.snakefile` needs to be completed before `02_annotate_dda.snakefile` is run.
 
-Start by trying a dry run of the first part of the workflow:
+To run the workflow, you can use:
+```
+snakemake -s 00_select_query_species_for_dda.snakefile --use-conda --rerun-incomplete -j 1
+```
+
+When this snakefile is finished running, you can then run the next snakefile:
+```
+snakemake -s 01_perform_dda.snakefile --use-conda --rerun-incomplete -j 1
+```
+
+And then the final snakefile:
+```
+snakemake -s 02_annotate_dda.snakefile --use-conda --rerun-incomplete -j 1
+```
+
+The test data is fairly small, but the workflow still takes ~half a day to run from start to finish.
+
+### Running the workflow on a cluster
+
+If you're working on a cluster/remote computer with a job scheduler (e.g. slurm), you can use the following command to submit each rule as a job.
+You'll need to update information about the partition to match your cluster.
 
 ```
-snakemake -s 00_perform_dda.snakefile -n
+snakemake -s 00_select_query_species_for_dda.snakefile -j 16 --use-conda --rerun-incomplete --latency-wait 15 --resources mem_mb=200000 --cluster "sbatch -t {resources.time_min} -J dda -p bmm -n 1 -N 1 -c {threads} --mem={resources.mem_mb}" -k
 ```
 
-The dry run should produce an output that looks like the one shown below.
+### Dry runs
+
+A dry run let's you see what rules still need to be run, and how many times each will be run.
+Each dry run will only work after the preceding snakefile is finished running as there are file dependencies between the snakefiles.
+
+You can start by trying a dry run of the first part of the workflow:
+
+```
+snakemake -s 00_select_query_species_for_dda.snakefile -n
+```
+
+The bottom of the dry run should produce an output that looks like the one shown below.
 It details all of the rules that need to be run, the number of times each rule will be run, and the threads that will be allocated to each run.
 The rules are listed in alphabetical order, not in order of execution.
-Given the way the workflow is written, only a subset of rules are shown in the dry run until the rule `mgx_select_query_genomes_shared_across_samples` is finished running.
-The results of this rule are used to re-solve the directed acyclic graph (DAG) and re-determine which rules need to be run and how  many times they need to be run.
 
 ```
 Building DAG of jobs...
@@ -85,42 +114,69 @@ mgx_sourmash_sketch                                   8              1          
 total                                                46              1              1
 ```
 
-To run the workflow, you can use:
+The bottom of the dry run for `01_perform_dda.snakefile` looks like:
 ```
-snakemake -s 00_perform_dda.snakefile --use-conda --rerun-incomplete -j 1
+Building DAG of jobs...
+Job stats:
+job                                                    count    min threads    max threads
+---------------------------------------------------  -------  -------------  -------------
+all                                                        1              1              1
+corncob_for_dominating_set_differential_abund              3              1              1
+diginorm_spacegraphcats_query_genomes                      3              1              1
+download_query_genome                                      3              1              1
+format_spacegraphcats_pangenome_catlas_abundances          3              1              1
+generate_charcoal_genome_list                              1              1              1
+hardtrim_spacegraphcats_query_genomes                      3              1              1
+make_query_genome_info_csv                                 3              1              1
+make_sgc_metapangenome_conf_files                          3              1              1
+metapangeome_spacegraphcats_build                          3              1              1
+mgx_make_sgc_conf                                          8              1              1
+mgx_spacegraphcats_query_genomes_extract_reads             8              1              1
+query_genomes_charcoal_decontaminate                       1              1              1
+spacegraphcats_pangenome_catlas_estimate_abundances        3              1              1
+tmp_cp_sgc_nbhds_w_lib_prefix                             24              1              1
+total                                                     70              1              1
 ```
 
-When this snakefile is finished running, you can then run the next snakefile:
+The bottom of the dry run for `02_annotate_dda.snakefile` looks like:
 ```
-snakemake -s 01_annotate_dda.snakefile --use-conda --rerun-incomplete -j 1
-```
-
-The test data is fairly small, but the workflow still takes ~half a day to run from start to finish.
-
-### Running the workflow on a cluster
-
-If you're working on a cluster/remote computer with a job scheduler (e.g. slurm), you can use the following command to submit each rule as a job.
-You'll need to update information about the partition to match your cluster.
-
-```
-snakemake -s 00_perform_dda.snakefile -j 16 --use-conda --rerun-incomplete --latency-wait 15 --resources mem_mb=200000 --cluster "sbatch -t {resources.time_min} -J dda -p bmm -n 1 -N 1 -c {threads} --mem={resources.mem_mb}" -k
+Job stats:
+job                                                                           count    min threads    max threads
+--------------------------------------------------------------------------  -------  -------------  -------------
+all                                                                               1              1              1
+bakta_annotate_gtdb_genomes                                                     182              1              1
+bakta_download_db                                                                 1              1              1
+cat_annotated_sequences                                                           3              1              1
+cluster_annotated_sequences                                                       3              1              1
+eggnog_annotate_clustered_sequences                                               3              1              1
+eggnog_download_db                                                                1              1              1
+grab_annotation_genome_accessions                                                 3              1              1
+join_annotations_to_dominating_set_differential_abundance_analysis_results        3              1              1
+make_metapangenome_sgc_multifasta_conf_files                                      3              1              1
+sketch_metapangenome_reference                                                    3              1              1
+spacegraphcats_metapangenome_catlas_cdbg_to_pieces_map                            3              1              1
+spacegraphcats_metapangenome_catlas_multifasta_annotate                           3              1              1
+translate_clustered_sequences_for_annotations                                     3              1              1
+total                                                                           215              1              1
 ```
 
 ## Overview of the steps in the workflow
 
-The workflow is written in two parts.
-The first snakefile performs the differential abundance analysis, while the second snakefile annotates the results with gene and ortholog names.
+The workflow is written in thre parts.
+The first snakefile selects genomes with which to perfrom differential abuandance analysis, the second snakefile performs the differential abundance analysis, and the third snakefile annotates the results with gene and ortholog names.
 Below, we provide a more detailed overview of the steps encoded by each workflow.
 
-`00_perform_dda.snakefile`:
+`00_select_query_species_for_dda.snakefile`:
 + preprocesses the raw metagenome sequencing reads.
 + determines the taxonomic composition of each metagenome.
 + selects species on which to perform differential abundance analysis using species that are detected in 100% of samples (threshold can be decreased by the user). For each selected species, the GTDB representative genome becomes the _query genome_.
+
+`01_perform_dda.snakefile`:
 + recovers all of the sequencing reads/variation (neighborhoods) attributable to the query genomes within each metagenome.
 + combines the genome query neighborhoods to build a _metapangenome graph_ that represents all of the variation observed across all metagenomes for a given species.
 + performs dominating set differential abundance analysis on the metapangenome graph to identify the sequences (dominating set pieces) that are more or less abundant in one group of metagenomes when compared to another.
 
-`01_annotate_dda.snakefile`:
+`02_annotate_dda.snakefile`:
 + annotates the metapangenome graph using matches to genes in GTDB (rs207) genomes of the same species as the query genome.
 + joins annotations to the differentially abundant sequences.
 

@@ -3,7 +3,7 @@
 Dominating set differential abundance analysis allows you to perform differential abundance analysis directly on an assembly graph.
 This approach was developed in the repository [dib-lab/2020-ibd](https://github.com/dib-lab/2020-ibd) and is explained in [dib-lab/2021-paper-ibd](https://github.com/dib-lab/2021-paper-ibd).
 
-This workflow takes as input raw metagenome sequences from two groups of metagenomes (e.g. case vs. control). 
+As input, this workflow takes raw metagenome sequences from two groups of metagenomes (e.g. case vs. control). 
 It generates a taxonomic profile for each metagenome, and selects the species that are present in some threshold of metagenomes (by default, 100%) for dominating set differential abundance analysis.
 
 Abbreviations:
@@ -20,7 +20,7 @@ This is a snakemake workflow that uses conda to manage software installations.
 You will need `conda` to be installed in order to run this workflow.
 You can find operating system-specific instructions for installing miniconda [here](https://docs.conda.io/en/latest/miniconda.html).
 
-After installing conda, clone the repository to your machine.
+After installing `conda`, clone the repository to your machine.
 
 ```
 git clone https://github.com/taylorreiter/2022-dominating-set-differential-abundance-example.git
@@ -52,14 +52,14 @@ cd ..
 ### Running the workflow
 
 The workflow is written in three parts, `00_select_query_species_for_dda.snakefile`, `01_perform_dda.snakefile` and `02_annotate_dda.snakefile`. 
-`00_select_query_species_for_dda.snakefile` needs to be run and completed before `01_perform_dda.snakefile`, and  `01_perform_dda.snakefile` needs to be completed before `02_annotate_dda.snakefile` is run.
+`00_select_query_species_for_dda.snakefile` needs to be run and completed before `01_perform_dda.snakefile`, and  `01_perform_dda.snakefile` needs to be completed before `02_annotate_dda.snakefile` is ran.
 
 To run the workflow, you can use:
 ```
 snakemake -s 00_select_query_species_for_dda.snakefile --use-conda --rerun-incomplete -j 1
 ```
 
-When this snakefile is finished running, you can then run the next snakefile:
+When this snakefile has finished running, you can then run the next snakefile:
 ```
 snakemake -s 01_perform_dda.snakefile --use-conda --rerun-incomplete -j 1
 ```
@@ -162,8 +162,8 @@ total                                                                           
 
 ## Overview of the steps in the workflow
 
-The workflow is written in thre parts.
-The first snakefile selects genomes with which to perfrom differential abuandance analysis, the second snakefile performs the differential abundance analysis, and the third snakefile annotates the results with gene and ortholog names.
+The workflow is written in three parts.
+The first snakefile selects genomes with which to perform differential abundance analysis, the second snakefile performs the differential abundance analysis, and the third snakefile annotates the results with gene and ortholog names.
 Below, we provide a more detailed overview of the steps encoded by each workflow.
 
 `00_select_query_species_for_dda.snakefile`:
@@ -180,7 +180,7 @@ Below, we provide a more detailed overview of the steps encoded by each workflow
 + annotates the metapangenome graph using matches to genes in GTDB (rs207) genomes of the same species as the query genome.
 + joins annotations to the differentially abundant sequences.
 
-## Interpretting the output files from the workflow
+## Interpreting the output files from the workflow
 
 The final set of results is currently written to the folder `outputs/metapangenome_sgc_catlases_corncob`. 
 There are two files, `*all_ccs.tsv` and `*_sig_ccs.tsv`.   
@@ -232,7 +232,7 @@ This workflow has _not_ yet been adapted to make re-running it on new data easy,
     The base `var` (e.g. controls) should come first.
 2. **Updating the workflow to run a more complex model**: The files that need to be changed to enable a more complex model design are `scripts/corncob_dda.R` and `inputs/metadata.csv`. The metadata file should include all variables that you would like to include in your model, with each encoded as a new column. The `scripts/corncob_dda.R` file will need more substantial changes. We plan to add more documentation on this later, but in the meantime for inspiration, see [here](https://github.com/dib-lab/2020-ibd/blob/master/scripts/corncob_dda.R).
 
-Note we have not tested these suggested changes for adapting to new data...buyer beware! 
+Note, we have not tested these suggested changes for adapting to new data...buyer beware! 
 We think this is everything that is needed, but may have missed something.
 Please file an issue if you find something to be amiss.
 

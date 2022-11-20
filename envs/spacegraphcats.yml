@@ -18,4 +18,4 @@ dependencies:
     - mamba>=0.22.1
     - pip
     - pip:
-        - git+https://github.com/spacegraphcats/spacegraphcats@tr-mf-ksize
+        - spacegraphcats>=2.1,<3

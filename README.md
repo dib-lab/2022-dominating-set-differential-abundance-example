@@ -23,7 +23,7 @@ You can find operating system-specific instructions for installing miniconda [he
 After installing `conda`, clone the repository to your machine.
 
 ```
-git clone https://github.com/taylorreiter/2022-dominating-set-differential-abundance-example.git
+git clone https://github.com/dib-lab/2022-dominating-set-differential-abundance-example.git
 ```
 
 `cd` into the repo and set up the conda environment in which the workflow will be run.
@@ -82,7 +82,7 @@ snakemake -s 00_select_query_species_for_dda.snakefile -j 16 --use-conda --rerun
 
 ### Dry runs
 
-A dry run let's you see what rules still need to be run, and how many times each will be run.
+A dry run lets you see what rules still need to be run, and how many times each will be run.
 Each dry run will only work after the preceding snakefile is finished running as there are file dependencies between the snakefiles.
 
 You can start by trying a dry run of the first part of the workflow:
